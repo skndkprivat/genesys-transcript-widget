@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Transcript &amp; Resumé Widget</title>
+<style>
+  :root{
+    --bg:#F6F8FA; --surface:#FFFFFF; --ink:#17212B; --ink-soft:#5A6B7B;
+    --line:#E2E8EE; --accent:#0E7A8A; --accent-ink:#0A5763;
+    --live:#0E8A5D; --warn:#B4530A; --err:#B0263C;
+    --cust:#EDF3FB; --cust-edge:#B9CFEA; --agent:#F0F6EF; --agent-edge:#C2DCC0;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --radius:8px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    background:var(--bg); color:var(--ink); font-size:13.5px; line-height:1.45;
+    display:flex; flex-direction:column;
+  }
+  header{
+    display:flex; align-items:center; gap:8px;
+    padding:8px 12px; background:var(--surface); border-bottom:1px solid var(--line);
+    position:sticky; top:0; z-index:5;
+  }
+  header h1{font-size:14px; font-weight:650; letter-spacing:.2px; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .pill{
+    font-family:var(--mono); font-size:10.5px; padding:2px 8px; border-radius:999px;
+    border:1px solid var(--line); color:var(--ink-soft); background:var(--bg); white-space:nowrap;
+  }
+  .pill.live{color:#fff; background:var(--live); border-color:var(--live)}
+  .pill.live::before{content:"●"; margin-right:5px; animation:pulse 1.2s infinite}
+  .pill.auth-ok{color:var(--accent-ink); border-color:var(--accent); background:#EAF5F7}
+  .pill.auth-no{color:var(--err); border-color:#E7C2CA; background:#FBF0F2}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  nav{display:flex; background:var(--surface); border-bottom:1px solid var(--line)}
+  nav button{
+    flex:1; padding:8px 4px; border:0; background:none; cursor:pointer; font:inherit;
+    color:var(--ink-soft); border-bottom:2px solid transparent; font-weight:550;
+  }
+  nav button.active{color:var(--accent-ink); border-bottom-color:var(--accent)}
+  nav button:focus-visible{outline:2px solid var(--accent); outline-offset:-2px}
+  main{flex:1; overflow:auto; padding:10px 12px 20px}
+  .tab{display:none}
+  .tab.active{display:block}
+  .row{display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px}
+  button.btn{
+    font:inherit; font-weight:600; padding:7px 12px; border-radius:var(--radius);
+    border:1px solid var(--accent); background:var(--accent); color:#fff; cursor:pointer;
+  }
+  button.btn:hover{background:var(--accent-ink)}
+  button.btn.secondary{background:var(--surface); color:var(--accent-ink)}
+  button.btn.secondary:hover{background:#EAF5F7}
+  button.btn.stop{background:var(--err); border-color:var(--err)}
+  button.btn:disabled{opacity:.45; cursor:not-allowed}
+  button.btn:focus-visible{outline:2px solid var(--ink); outline-offset:2px}
+  .hint{font-size:12px; color:var(--ink-soft); margin:4px 0 10px}
+  .msgbar{font-size:12px; padding:7px 10px; border-radius:var(--radius); margin-bottom:10px; display:none}
+  .msgbar.show{display:block}
+  .msgbar.info{background:#EAF5F7; color:var(--accent-ink); border:1px solid #BFE0E6}
+  .msgbar.warn{background:#FBF2E8; color:var(--warn); border:1px solid #EBD3B8}
+  .msgbar.err{background:#FBF0F2; color:var(--err); border:1px solid #E7C2CA}
+  /* transcript stream */
+  #stream{display:flex; flex-direction:column; gap:6px}
+  .utt{max-width:88%; padding:6px 10px; border-radius:10px; border:1px solid}
+  .utt .meta{font-family:var(--mono); font-size:10px; color:var(--ink-soft); margin-bottom:2px; display:flex; gap:8px}
+  .utt.customer{align-self:flex-start; background:var(--cust); border-color:var(--cust-edge)}
+  .utt.agent{align-self:flex-end; background:var(--agent); border-color:var(--agent-edge)}
+  .utt.interim{opacity:.55; border-style:dashed}
+  .empty{color:var(--ink-soft); font-size:12.5px; text-align:center; padding:24px 8px}
+  /* forms */
+  label{display:block; font-size:12px; font-weight:600; color:var(--ink-soft); margin:10px 0 3px}
+  input[type=text],input[type=password],select,textarea{
+    width:100%; font:inherit; padding:7px 9px; border:1px solid var(--line);
+    border-radius:var(--radius); background:var(--surface); color:var(--ink);
+  }
+  input:focus,select:focus,textarea:focus{outline:2px solid var(--accent); outline-offset:-1px; border-color:var(--accent)}
+  textarea{resize:vertical; min-height:70px}
+  fieldset{border:1px solid var(--line); border-radius:var(--radius); padding:10px 12px 12px; margin-bottom:14px; background:var(--surface)}
+  legend{font-size:12px; font-weight:700; color:var(--accent-ink); padding:0 6px}
+  .keyrow{display:flex; gap:6px}
+  .keyrow input{flex:1}
+  .keyrow button{flex:none}
+  #summaryOut{
+    white-space:pre-wrap; background:var(--surface); border:1px solid var(--line);
+    border-radius:var(--radius); padding:12px; min-height:120px; font-size:13px;
+  }
+  #summaryOut:empty::before{content:attr(data-empty); color:var(--ink-soft); font-size:12.5px}
+  .spin{display:inline-block; width:13px; height:13px; border:2px solid #fff; border-top-color:transparent; border-radius:50%; animation:rot .8s linear infinite; vertical-align:-2px; margin-right:6px}
+  @keyframes rot{to{transform:rotate(360deg)}}
+  @media (prefers-reduced-motion:reduce){.pill.live::before,.spin{animation:none}}
+  .footer-note{font-size:11px; color:var(--ink-soft); font-family:var(--mono); margin-top:16px; word-break:break-all}
+</style>
+</head>
+<body>
+<header>
+  <h1 id="t-title">Transcript &amp; Resumé</h1>
+  <span id="livePill" class="pill" hidden>LIVE</span>
+  <span id="authPill" class="pill auth-no">–</span>
+</header>
+<nav>
+  <button id="nav-transcript" class="active" data-tab="transcript">Transskription</button>
+  <button id="nav-summary" data-tab="summary">Resumé</button>
+  <button id="nav-settings" data-tab="settings">Opsætning</button>
+</nav>
+<main>
+  <div id="msg" class="msgbar" role="status"></div>
+
+  <!-- TRANSCRIPT TAB -->
+  <section id="tab-transcript" class="tab active">
+    <div class="row">
+      <button class="btn" id="btnLive"></button>
+      <button class="btn secondary" id="btnFetch"></button>
+      <button class="btn secondary" id="btnCopyT"></button>
+      <button class="btn secondary" id="btnClear"></button>
+    </div>
+    <p class="hint" id="t-hint-transcript"></p>
+    <div id="stream"><div class="empty" id="t-empty"></div></div>
+  </section>
+
+  <!-- SUMMARY TAB -->
+  <section id="tab-summary" class="tab">
+    <label id="t-lbl-focus" for="focusPoints"></label>
+    <textarea id="focusPoints" rows="3"></textarea>
+    <label id="t-lbl-provider" for="provider"></label>
+    <div class="row">
+      <select id="provider" style="flex:1">
+        <option value="openai">OpenAI</option>
+        <option value="gemini">Google Gemini</option>
+        <option value="claude">Anthropic Claude</option>
+        <option value="ollama">Ollama (lokal)</option>
+      </select>
+      <select id="sumLang" style="flex:1">
+        <option value="da">Dansk</option>
+        <option value="en">English</option>
+        <option value="fr">Français</option>
+        <option value="de">Deutsch</option>
+      </select>
+    </div>
+    <div class="row">
+      <button class="btn" id="btnSummarize"></button>
+      <button class="btn secondary" id="btnCompare"></button>
+      <button class="btn secondary" id="btnCopyS"></button>
+    </div>
+    <div id="summaryOut" data-empty=""></div>
+  </section>
+
+  <!-- SETTINGS TAB -->
+  <section id="tab-settings" class="tab">
+    <fieldset>
+      <legend id="t-leg-genesys">Genesys Cloud</legend>
+      <label id="t-lbl-region" for="region"></label>
+      <select id="region">
+        <option value="mypurecloud.de">EU Central (mypurecloud.de)</option>
+        <option value="mypurecloud.ie">EU West / Ireland (mypurecloud.ie)</option>
+        <option value="euw2.pure.cloud">EU West 2 / London (euw2.pure.cloud)</option>
+        <option value="euc2.pure.cloud">EU Central 2 / Zürich (euc2.pure.cloud)</option>
+        <option value="mypurecloud.com">US East (mypurecloud.com)</option>
+        <option value="usw2.pure.cloud">US West (usw2.pure.cloud)</option>
+        <option value="cac1.pure.cloud">Canada (cac1.pure.cloud)</option>
+        <option value="aps1.pure.cloud">Asia Pacific (aps1.pure.cloud)</option>
+      </select>
+      <label id="t-lbl-clientid" for="clientId"></label>
+      <input type="text" id="clientId" autocomplete="off" spellcheck="false">
+      <label id="t-lbl-convid" for="convId"></label>
+      <input type="text" id="convId" autocomplete="off" spellcheck="false" placeholder="{{gcConversationId}}">
+      <div class="row" style="margin-top:10px">
+        <input type="checkbox" id="autoStart" checked style="width:auto">
+        <label id="t-lbl-autostart" for="autoStart" style="margin:0; font-weight:600"></label>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button class="btn" id="btnLogin"></button>
+        <button class="btn secondary" id="btnLogout"></button>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend id="t-leg-ai">AI</legend>
+      <label for="keyOpenai">OpenAI API key</label>
+      <div class="keyrow">
+        <input type="password" id="keyOpenai" autocomplete="off">
+        <input type="text" id="modelOpenai" style="max-width:150px" placeholder="gpt-4o-mini">
+      </div>
+      <label for="keyGemini">Gemini API key</label>
+      <div class="keyrow">
+        <input type="password" id="keyGemini" autocomplete="off">
+        <input type="text" id="modelGemini" style="max-width:150px" placeholder="gemini-2.0-flash">
+      </div>
+      <label for="keyClaude">Claude API key</label>
+      <div class="keyrow">
+        <input type="password" id="keyClaude" autocomplete="off">
+        <input type="text" id="modelClaude" style="max-width:150px" placeholder="claude-sonnet-4-5">
+      </div>
+      <p class="hint" id="t-hint-keys"></p>
+      <label id="t-lbl-ollama" for="ollamaUrl"></label>
+      <div class="keyrow">
+        <input type="text" id="ollamaUrl" autocomplete="off" spellcheck="false" placeholder="http://localhost:11434">
+        <input type="text" id="modelOllama" style="max-width:150px" placeholder="llama3.1">
+      </div>
+      <p class="hint" id="t-hint-ollama"></p>
+      <label id="t-lbl-proxy" for="proxyUrl"></label>
+      <input type="text" id="proxyUrl" autocomplete="off" spellcheck="false" placeholder="https://ai-proxy.example.workers.dev">
+      <p class="hint" id="t-hint-proxy"></p>
+      <label id="t-lbl-action" for="gcActionId"></label>
+      <input type="text" id="gcActionId" autocomplete="off" spellcheck="false" placeholder="custom_-_xxxxxxxx-....">
+      <p class="hint" id="t-hint-action"></p>
+    </fieldset>
+
+    <fieldset>
+      <legend id="t-leg-ui">UI</legend>
+      <label id="t-lbl-uilang" for="uiLang"></label>
+      <select id="uiLang">
+        <option value="da">Dansk</option>
+        <option value="en">English</option>
+        <option value="fr">Français</option>
+        <option value="de">Deutsch</option>
+      </select>
+    </fieldset>
+
+    <div class="row"><button class="btn" id="btnSave"></button></div>
+    <p class="footer-note" id="verNote">Genesys Transcript &amp; Summary Widget v1.0.0</p>
+  </section>
+</main>
+
+<script>
+/* ============================================================
+   Genesys Cloud Transcript & AI Summary — Interaction Widget
+   Modes:
+     A) Realtime: Notifications API topic v2.conversations.{id}.transcription
+        (requires Voice Transcription enabled; Low Latency = 3-5s delay)
+     B) Fetch: GET /api/v2/speechandtextanalytics/conversations/{cid}/
+        communications/{commId}/transcripturl
+   AI: OpenAI / Gemini / Claude via user-provided API keys (localStorage)
+   Auth: OAuth2 Implicit Grant (Token) — public client, no secret
+   ============================================================ */
+
+/* ---------------- i18n ---------------- */
+const I18N = {
+  da:{
+    title:"Transskription & Resumé",
+    tabT:"Transskription", tabS:"Resumé", tabC:"Opsætning",
+    live:"Start realtid", liveStop:"Stop realtid", fetch:"Hent transskription",
+    copyT:"Kopiér", clear:"Ryd",
+    hintT:"Realtid: lyt med under samtalen (kræver Voice Transcription + gerne Low Latency). Hent: brug efter kunden har lagt på — transskriptionen kan tage lidt tid om at blive klar.",
+    empty:"Ingen transskription endnu. Start realtid under samtalen eller tryk 'Hent transskription' i efterbehandling.",
+    lblFocus:"Fokuspunkter — hvad er vigtigt i samtalen? (bruges i AI-prompten)",
+    focusPh:"F.eks.: aftaler og deadlines, beløb, kundens sagsnummer, opfølgning, klager, GDPR-relevante emner …",
+    lblProvider:"AI-udbyder / resumésprog",
+    summarize:"Generér resumé", copyS:"Kopiér resumé",
+    sumEmpty:"Resuméet vises her, klar til at sætte ind i wrap-up-noter inden du trykker Done.",
+    legGenesys:"Genesys Cloud", lblRegion:"Region", lblClientId:"OAuth Client ID (Implicit Grant)",
+    lblConvId:"Conversation ID (udfyldes automatisk af widget-URL)",
+    login:"Log ind", logout:"Log ud", save:"Gem opsætning",
+    hintKeys:"Nøgler gemmes kun lokalt i denne browser (localStorage) og sendes direkte til den valgte AI-udbyder.",
+    legUI:"Sprog", lblUiLang:"Widget-sprog",
+    authOk:"Logget ind", authNo:"Ikke logget ind",
+    saved:"Opsætning gemt.",
+    copied:"Kopieret til udklipsholder.",
+    needAuth:"Log ind under Opsætning først.",
+    needConv:"Intet Conversation ID. Åbn widget'en fra en interaktion, eller indtast ID under Opsætning.",
+    needKey:"Ingen API-nøgle for den valgte udbyder. Tilføj den under Opsætning.",
+    noTranscript:"Ingen transskription at opsummere endnu.",
+    fetching:"Henter transskription…",
+    fetchNone:"Ingen transskription fundet endnu. Den kan tage 1-2 min. efter samtalen er slut — prøv igen.",
+    liveOn:"Realtidstransskription startet.",
+    liveOff:"Realtidstransskription stoppet.",
+    liveEnded:"Transskriptionssessionen er afsluttet (kunden har formentlig lagt på). Du kan nu generere resumé.",
+    summarizing:"Genererer resumé…",
+    customer:"Kunde", agent:"Agent",
+    liveAuto:"Realtidstransskription startet automatisk.",
+    lblProxy:"Proxy-URL (valgfri)",
+    hintProxy:"Er en proxy-URL sat, sendes AI-kaldet via proxyen. Har proxyen sin egen API-nøgle (server-side), bruges DEN — nøglerne herover ignoreres og fungerer kun som fallback.",
+    lblAutoStart:"Start realtidstransskription automatisk (agenten skal intet gøre)",
+    compare:"Sammenlign udbydere",
+    comparing:"Sammenligner…",
+    lblOllama:"Ollama URL / model (lokal, gratis, data forlader ikke maskinen)",
+    hintOllama:"Kræver at Ollama kører med CORS åbnet for widget-domænet: sæt miljøvariablen OLLAMA_ORIGINS til widget-URL\u2019ens origin (eller *) og genstart Ollama.",
+    lblAction:"Genesys Function Data Action ID (valgfri — vinder over proxy)",
+    hintAction:"Er et Action ID sat, køres AI-kaldet som Function Data Action inde i Genesys Cloud. API-nøglerne ligger KUN i integrationens Credentials-tab — intet sendes fra browseren. Kræver permission integrations:action:execute.",
+    errGeneric:"Fejl: "
+  },
+  en:{
+    title:"Transcript & Summary",
+    tabT:"Transcript", tabS:"Summary", tabC:"Setup",
+    live:"Start realtime", liveStop:"Stop realtime", fetch:"Fetch transcript",
+    copyT:"Copy", clear:"Clear",
+    hintT:"Realtime: listen along during the call (requires Voice Transcription + ideally Low Latency). Fetch: use after the customer hung up — the transcript may take a moment to become available.",
+    empty:"No transcript yet. Start realtime during the call, or press 'Fetch transcript' during wrap-up.",
+    lblFocus:"Focus points — what matters in this conversation? (injected into the AI prompt)",
+    focusPh:"E.g.: agreements and deadlines, amounts, customer case number, follow-ups, complaints, GDPR-relevant topics …",
+    lblProvider:"AI provider / summary language",
+    summarize:"Generate summary", copyS:"Copy summary",
+    sumEmpty:"The summary appears here, ready to paste into your wrap-up notes before pressing Done.",
+    legGenesys:"Genesys Cloud", lblRegion:"Region", lblClientId:"OAuth Client ID (Implicit Grant)",
+    lblConvId:"Conversation ID (auto-filled by the widget URL)",
+    login:"Log in", logout:"Log out", save:"Save settings",
+    hintKeys:"Keys are stored locally in this browser only (localStorage) and sent directly to the chosen AI provider.",
+    legUI:"Language", lblUiLang:"Widget language",
+    authOk:"Logged in", authNo:"Not logged in",
+    saved:"Settings saved.",
+    copied:"Copied to clipboard.",
+    needAuth:"Log in under Setup first.",
+    needConv:"No Conversation ID. Open the widget from an interaction, or enter the ID under Setup.",
+    needKey:"No API key for the selected provider. Add it under Setup.",
+    noTranscript:"No transcript to summarize yet.",
+    fetching:"Fetching transcript…",
+    fetchNone:"No transcript found yet. It can take 1-2 min after the call ends — try again.",
+    liveOn:"Realtime transcription started.",
+    liveOff:"Realtime transcription stopped.",
+    liveEnded:"Transcription session ended (the customer likely hung up). You can generate the summary now.",
+    summarizing:"Generating summary…",
+    customer:"Customer", agent:"Agent",
+    liveAuto:"Realtime transcription started automatically.",
+    lblProxy:"Proxy URL (optional)",
+    hintProxy:"If a proxy URL is set, AI calls go through the proxy. If the proxy has its own server-side API key, THAT key is used — the keys above are ignored and only act as fallback.",
+    lblAutoStart:"Start realtime transcription automatically (no agent action needed)",
+    compare:"Compare providers",
+    comparing:"Comparing…",
+    lblOllama:"Ollama URL / model (local, free, data never leaves the machine)",
+    hintOllama:"Requires Ollama running with CORS opened for the widget domain: set the OLLAMA_ORIGINS environment variable to the widget URL\u2019s origin (or *) and restart Ollama.",
+    lblAction:"Genesys Function Data Action ID (optional — takes precedence over proxy)",
+    hintAction:"If an Action ID is set, the AI call runs as a Function Data Action inside Genesys Cloud. API keys live ONLY in the integration\u2019s Credentials tab — nothing is sent from the browser. Requires the integrations:action:execute permission.",
+    errGeneric:"Error: "
+  },
+  fr:{
+    title:"Transcription & Résumé",
+    tabT:"Transcription", tabS:"Résumé", tabC:"Configuration",
+    live:"Démarrer temps réel", liveStop:"Arrêter temps réel", fetch:"Récupérer la transcription",
+    copyT:"Copier", clear:"Effacer",
+    hintT:"Temps réel : suivez la conversation en direct (nécessite Voice Transcription + idéalement Low Latency). Récupérer : à utiliser après que le client a raccroché — la transcription peut prendre un moment.",
+    empty:"Pas encore de transcription. Démarrez le temps réel pendant l'appel ou cliquez sur « Récupérer la transcription » pendant le wrap-up.",
+    lblFocus:"Points d'attention — qu'est-ce qui est important dans cette conversation ? (injecté dans le prompt IA)",
+    focusPh:"Ex. : accords et échéances, montants, numéro de dossier client, suivis, réclamations, sujets RGPD …",
+    lblProvider:"Fournisseur IA / langue du résumé",
+    summarize:"Générer le résumé", copyS:"Copier le résumé",
+    sumEmpty:"Le résumé s'affiche ici, prêt à être collé dans vos notes de wrap-up avant de cliquer sur Done.",
+    legGenesys:"Genesys Cloud", lblRegion:"Région", lblClientId:"OAuth Client ID (Implicit Grant)",
+    lblConvId:"Conversation ID (rempli automatiquement par l'URL du widget)",
+    login:"Connexion", logout:"Déconnexion", save:"Enregistrer",
+    hintKeys:"Les clés sont stockées uniquement dans ce navigateur (localStorage) et envoyées directement au fournisseur IA choisi.",
+    legUI:"Langue", lblUiLang:"Langue du widget",
+    authOk:"Connecté", authNo:"Non connecté",
+    saved:"Configuration enregistrée.",
+    copied:"Copié dans le presse-papiers.",
+    needAuth:"Connectez-vous d'abord dans Configuration.",
+    needConv:"Pas de Conversation ID. Ouvrez le widget depuis une interaction ou saisissez l'ID dans Configuration.",
+    needKey:"Pas de clé API pour le fournisseur sélectionné. Ajoutez-la dans Configuration.",
+    noTranscript:"Pas encore de transcription à résumer.",
+    fetching:"Récupération de la transcription…",
+    fetchNone:"Aucune transcription trouvée pour l'instant. Cela peut prendre 1-2 min après la fin de l'appel — réessayez.",
+    liveOn:"Transcription temps réel démarrée.",
+    liveOff:"Transcription temps réel arrêtée.",
+    liveEnded:"La session de transcription est terminée (le client a probablement raccroché). Vous pouvez générer le résumé.",
+    summarizing:"Génération du résumé…",
+    customer:"Client", agent:"Agent",
+    liveAuto:"Transcription temps réel démarrée automatiquement.",
+    lblProxy:"URL du proxy (optionnel)",
+    hintProxy:"Si une URL de proxy est définie, les appels IA passent par le proxy. Si le proxy possède sa propre clé API (côté serveur), c’est elle qui est utilisée — les clés ci-dessus sont ignorées et ne servent que de secours.",
+    lblAutoStart:"Démarrer automatiquement la transcription temps réel (aucune action de l’agent)",
+    compare:"Comparer les fournisseurs",
+    comparing:"Comparaison…",
+    lblOllama:"URL / modèle Ollama (local, gratuit, les données ne quittent pas la machine)",
+    hintOllama:"Nécessite Ollama avec CORS ouvert pour le domaine du widget : définissez la variable d\u2019environnement OLLAMA_ORIGINS sur l\u2019origine de l\u2019URL du widget (ou *) et redémarrez Ollama.",
+    lblAction:"ID de la Function Data Action Genesys (optionnel — prioritaire sur le proxy)",
+    hintAction:"Si un Action ID est défini, l\u2019appel IA s\u2019exécute comme Function Data Action dans Genesys Cloud. Les clés API résident UNIQUEMENT dans l\u2019onglet Credentials de l\u2019intégration — rien n\u2019est envoyé depuis le navigateur. Nécessite la permission integrations:action:execute.",
+    errGeneric:"Erreur : "
+  },
+  de:{
+    title:"Transkript & Zusammenfassung",
+    tabT:"Transkript", tabS:"Zusammenfassung", tabC:"Einrichtung",
+    live:"Echtzeit starten", liveStop:"Echtzeit stoppen", fetch:"Transkript abrufen",
+    copyT:"Kopieren", clear:"Leeren",
+    hintT:"Echtzeit: während des Gesprächs mitlesen (erfordert Voice Transcription + idealerweise Low Latency). Abrufen: nach dem Auflegen des Kunden verwenden — das Transkript kann einen Moment brauchen.",
+    empty:"Noch kein Transkript. Starten Sie Echtzeit während des Anrufs oder klicken Sie im Wrap-up auf „Transkript abrufen“.",
+    lblFocus:"Fokuspunkte — was ist in diesem Gespräch wichtig? (wird in den KI-Prompt eingefügt)",
+    focusPh:"Z.B.: Vereinbarungen und Fristen, Beträge, Kundennummer/Vorgangsnummer, Follow-ups, Beschwerden, DSGVO-relevante Themen …",
+    lblProvider:"KI-Anbieter / Sprache der Zusammenfassung",
+    summarize:"Zusammenfassung erstellen", copyS:"Zusammenfassung kopieren",
+    sumEmpty:"Die Zusammenfassung erscheint hier — bereit zum Einfügen in die Wrap-up-Notizen, bevor Sie auf Done klicken.",
+    legGenesys:"Genesys Cloud", lblRegion:"Region", lblClientId:"OAuth Client ID (Implicit Grant)",
+    lblConvId:"Conversation ID (wird automatisch über die Widget-URL gefüllt)",
+    login:"Anmelden", logout:"Abmelden", save:"Einstellungen speichern",
+    hintKeys:"Schlüssel werden nur lokal in diesem Browser gespeichert (localStorage) und direkt an den gewählten KI-Anbieter gesendet.",
+    legUI:"Sprache", lblUiLang:"Widget-Sprache",
+    authOk:"Angemeldet", authNo:"Nicht angemeldet",
+    saved:"Einstellungen gespeichert.",
+    copied:"In die Zwischenablage kopiert.",
+    needAuth:"Bitte zuerst unter Einrichtung anmelden.",
+    needConv:"Keine Conversation ID. Öffnen Sie das Widget aus einer Interaktion oder geben Sie die ID unter Einrichtung ein.",
+    needKey:"Kein API-Schlüssel für den gewählten Anbieter. Bitte unter Einrichtung hinzufügen.",
+    noTranscript:"Noch kein Transkript zum Zusammenfassen.",
+    fetching:"Transkript wird abgerufen…",
+    fetchNone:"Noch kein Transkript gefunden. Es kann 1-2 Min. nach Gesprächsende dauern — bitte erneut versuchen.",
+    liveOn:"Echtzeit-Transkription gestartet.",
+    liveOff:"Echtzeit-Transkription gestoppt.",
+    liveEnded:"Die Transkriptionssitzung ist beendet (der Kunde hat vermutlich aufgelegt). Sie können jetzt die Zusammenfassung erstellen.",
+    summarizing:"Zusammenfassung wird erstellt…",
+    customer:"Kunde", agent:"Agent",
+    liveAuto:"Echtzeit-Transkription automatisch gestartet.",
+    lblProxy:"Proxy-URL (optional)",
+    hintProxy:"Ist eine Proxy-URL gesetzt, laufen KI-Aufrufe über den Proxy. Hat der Proxy einen eigenen serverseitigen API-Schlüssel, wird DIESER verwendet — die Schlüssel oben werden ignoriert und dienen nur als Fallback.",
+    lblAutoStart:"Echtzeit-Transkription automatisch starten (keine Aktion des Agenten nötig)",
+    compare:"Anbieter vergleichen",
+    comparing:"Vergleiche…",
+    lblOllama:"Ollama-URL / Modell (lokal, kostenlos, Daten verlassen die Maschine nicht)",
+    hintOllama:"Erfordert Ollama mit geöffnetem CORS für die Widget-Domain: Umgebungsvariable OLLAMA_ORIGINS auf den Origin der Widget-URL (oder *) setzen und Ollama neu starten.",
+    lblAction:"Genesys Function Data Action ID (optional — hat Vorrang vor dem Proxy)",
+    hintAction:"Ist eine Action ID gesetzt, läuft der KI-Aufruf als Function Data Action innerhalb von Genesys Cloud. Die API-Schlüssel liegen NUR im Credentials-Tab der Integration — nichts wird vom Browser gesendet. Erfordert die Permission integrations:action:execute.",
+    errGeneric:"Fehler: "
+  }
+};
+</script>
+<script src="app.js"></script>
+</body>
+</html>

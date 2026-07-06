@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Systembeskrivelse — Genesys Transcript & AI Resumé Widget</title>
+<style>
+  :root{
+    --bg:#F6F8FA; --surface:#fff; --ink:#17212B; --soft:#5A6B7B; --line:#E2E8EE;
+    --accent:#0E7A8A; --accent-ink:#0A5763; --gc:#FF4F1F; --ai:#6B4FBB; --sec:#0E8A5D;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink);
+       font-size:15px;line-height:1.6;max-width:960px;margin:0 auto;padding:0 20px 80px}
+  header{display:flex;align-items:baseline;gap:16px;padding:28px 0 10px;border-bottom:3px solid var(--accent);margin-bottom:28px;flex-wrap:wrap}
+  h1{font-size:24px;letter-spacing:-.3px;flex:1;min-width:280px}
+  .langswitch button{font:inherit;font-weight:600;border:1px solid var(--line);background:var(--surface);
+       padding:5px 14px;cursor:pointer;color:var(--soft)}
+  .langswitch button:first-child{border-radius:8px 0 0 8px}
+  .langswitch button:last-child{border-radius:0 8px 8px 0;border-left:0}
+  .langswitch button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+  h2{font-size:18px;color:var(--accent-ink);margin:40px 0 10px;padding-top:10px;border-top:1px solid var(--line)}
+  h3{font-size:15px;margin:20px 0 6px}
+  p{margin:0 0 12px}
+  table{border-collapse:collapse;width:100%;margin:12px 0 16px;font-size:13.5px;background:var(--surface)}
+  th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+  th{background:#EEF3F6;font-weight:650}
+  code{font-family:var(--mono);font-size:12.5px;background:#EEF3F6;padding:1px 5px;border-radius:4px}
+  .diagram{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px;margin:14px 0 22px;overflow-x:auto}
+  .diagram svg{display:block;margin:0 auto;max-width:100%;height:auto}
+  .cap{font-size:12px;color:var(--soft);text-align:center;margin-top:6px;font-family:var(--mono)}
+  .note{background:#EAF5F7;border:1px solid #BFE0E6;border-radius:8px;padding:10px 14px;margin:12px 0;font-size:13.5px;color:var(--accent-ink)}
+  footer{margin-top:50px;font-family:var(--mono);font-size:11.5px;color:var(--soft)}
+  /* SVG shared */
+  .box{fill:#fff;stroke:#5A6B7B;stroke-width:1.3;rx:8}
+  .box-gc{stroke:var(--gc)} .box-ai{stroke:var(--ai)} .box-w{stroke:var(--accent);stroke-width:2} .box-sec{stroke:var(--sec)}
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#17212B}
+  .t-small{font-size:10px;fill:#5A6B7B}
+  .t-mono{font-family:ui-monospace,Menlo,monospace;font-size:10px;fill:#5A6B7B}
+  .t-head{font-weight:650;font-size:12.5px}
+  .arrow{stroke:#5A6B7B;stroke-width:1.4;fill:none;marker-end:url(#ah)}
+  .arrow-dash{stroke:#5A6B7B;stroke-width:1.2;fill:none;stroke-dasharray:5 4;marker-end:url(#ah)}
+  .arrow-gc{stroke:var(--gc)} .arrow-ai{stroke:var(--ai)} .arrow-sec{stroke:var(--sec)}
+  .lane{stroke:#CBD5DE;stroke-width:1;stroke-dasharray:3 4}
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="L" data-da="Systembeskrivelse — Transcript & AI Resumé Widget" data-en="System Description — Transcript & AI Summary Widget"></span></h1>
+  <div class="langswitch">
+    <button id="bDA" class="on">Dansk</button><button id="bEN">English</button>
+  </div>
+</header>
+
+<p class="L"
+ data-da="Widget'en er en Genesys Cloud Interaction Widget, der giver agenten samtalens fulde transskription i realtid og genererer et AI-resumé, som kan sættes ind i wrap-up-noterne, inden interaktionen afsluttes — også når kunden allerede har lagt på. Løsningen er 100 % statisk (index.html + app.js på GitHub Pages), uden egen backend; al autentifikation sker med agentens egen Genesys-session."
+ data-en="The widget is a Genesys Cloud Interaction Widget that gives the agent the full call transcript in real time and generates an AI summary that can be pasted into the wrap-up notes before the interaction is completed — even after the customer has hung up. The solution is 100% static (index.html + app.js on GitHub Pages) with no backend of its own; all authentication uses the agent's own Genesys session."></p>
+
+<h2 class="L" data-da="1. Arkitekturoverblik" data-en="1. Architecture Overview"></h2>
+<div class="diagram">
+<svg viewBox="0 0 900 430" width="900" height="430" role="img" aria-label="Architecture">
+<defs><marker id="ah" markerWidth="9" markerHeight="9" refX="7" refY="3.5" orient="auto"><path d="M0,0 L8,3.5 L0,7 z" fill="#5A6B7B"/></marker></defs>
+
+<!-- Agent / widget -->
+<rect class="box box-w" x="20" y="140" width="190" height="130" rx="8"/>
+<text class="t-head" x="115" y="163" text-anchor="middle" >Interaction Widget</text>
+<text class="t-small" x="115" y="180" text-anchor="middle">index.html + app.js</text>
+<text class="t-small" x="115" y="195" text-anchor="middle">GitHub Pages (statisk)</text>
+<text class="t-small" x="115" y="215" text-anchor="middle">OAuth Implicit (SSO)</text>
+<text class="t-small" x="115" y="230" text-anchor="middle">i18n: DA / EN / FR / DE</text>
+<text class="t-small" x="115" y="245" text-anchor="middle">localStorage-konfiguration</text>
+
+<!-- Genesys Cloud -->
+<rect class="box box-gc" x="290" y="30" width="280" height="240" rx="8"/>
+<text class="t-head" x="430" y="52" text-anchor="middle">Genesys Cloud (mypurecloud.de)</text>
+<rect class="box" x="305" y="65" width="250" height="42" rx="6"/>
+<text x="430" y="83" text-anchor="middle">Notifications API + WebSocket</text>
+<text class="t-mono" x="430" y="98" text-anchor="middle">v2.conversations.{id}.transcription</text>
+<rect class="box" x="305" y="115" width="250" height="42" rx="6"/>
+<text x="430" y="133" text-anchor="middle">Speech &amp; Text Analytics API</text>
+<text class="t-mono" x="430" y="148" text-anchor="middle">GET …/communications/{id}/transcripturl</text>
+<rect class="box box-sec" x="305" y="165" width="250" height="42" rx="6"/>
+<text x="430" y="183" text-anchor="middle">Function Data Action (valgfri)</text>
+<text class="t-mono" x="430" y="198" text-anchor="middle">POST /integrations/actions/{id}/execute</text>
+<rect class="box" x="305" y="215" width="250" height="42" rx="6"/>
+<text x="430" y="233" text-anchor="middle">Voice Transcription (STT-motor)</text>
+<text class="t-mono" x="430" y="248" text-anchor="middle">Low Latency: ~3-5 s</text>
+
+<!-- Proxy -->
+<rect class="box box-sec" x="290" y="300" width="280" height="60" rx="8"/>
+<text class="t-head" x="430" y="323" text-anchor="middle">Cloudflare Worker Proxy (valgfri)</text>
+<text class="t-mono" x="430" y="340" text-anchor="middle">POST /summarize · server-secrets vinder</text>
+
+<!-- AI providers -->
+<rect class="box box-ai" x="660" y="60" width="220" height="230" rx="8"/>
+<text class="t-head" x="770" y="83" text-anchor="middle">AI-udbydere</text>
+<rect class="box" x="675" y="95" width="190" height="30" rx="6"/><text x="770" y="114" text-anchor="middle">OpenAI</text>
+<rect class="box" x="675" y="132" width="190" height="30" rx="6"/><text x="770" y="151" text-anchor="middle">Google Gemini</text>
+<rect class="box" x="675" y="169" width="190" height="30" rx="6"/><text x="770" y="188" text-anchor="middle">Anthropic Claude</text>
+<rect class="box box-sec" x="675" y="206" width="190" height="46" rx="6"/>
+<text x="770" y="224" text-anchor="middle">Ollama (lokal / on-prem)</text>
+<text class="t-small" x="770" y="240" text-anchor="middle">gratis · data bliver internt</text>
+
+<!-- arrows -->
+<path class="arrow arrow-gc" d="M210 175 L 290 110"/>
+<text class="t-small" x="228" y="128">WSS realtid</text>
+<path class="arrow arrow-gc" d="M210 205 L 290 140"/>
+<text class="t-small" x="222" y="185">REST hent</text>
+<path class="arrow arrow-sec" d="M210 235 L 290 190"/>
+<text class="t-small" x="214" y="238">Data Action</text>
+<path class="arrow arrow-sec" d="M210 260 L 290 325"/>
+<text class="t-small" x="205" y="300">via proxy</text>
+<path class="arrow-dash arrow" d="M115 270 C 115 400, 640 400, 700 258"/>
+<text class="t-small" x="330" y="392">direkte (nøgle i browser — PoC)</text>
+<path class="arrow arrow-ai" d="M570 320 C 630 320, 640 250, 672 235"/>
+<path class="arrow arrow-ai" d="M555 186 L 675 150"/>
+</svg>
+<div class="cap L" data-da="Fig. 1 — Tre valgfrie AI-veje: direkte fra browser (PoC), via Cloudflare Worker, eller helt inde i Genesys via Function Data Action." data-en="Fig. 1 — Three optional AI paths: directly from the browser (PoC), via a Cloudflare Worker, or entirely inside Genesys via a Function Data Action."></div>
+</div>
+
+<h2 class="L" data-da="2. Funktioner" data-en="2. Features"></h2>
+<table>
+<tr><th class="L" data-da="Funktion" data-en="Feature"></th><th class="L" data-da="Beskrivelse" data-en="Description"></th></tr>
+<tr><td class="L" data-da="Automatisk realtidstransskription" data-en="Automatic realtime transcription"></td>
+    <td class="L" data-da="Widget'en logger selv ind (lydløst SSO-redirect med loop-beskyttelse) og abonnerer på transskriptionstopic'et, når interaktionen åbnes. Agenten foretager sig intet. Kunde/agent adskilles pr. kanal (EXTERNAL/INTERNAL) med tidsstempler; interim-ytringer vises nedtonet."
+        data-en="The widget logs in by itself (silent SSO redirect with loop protection) and subscribes to the transcription topic when the interaction opens. The agent does nothing. Customer/agent are separated per channel (EXTERNAL/INTERNAL) with timestamps; interim utterances are dimmed."></td></tr>
+<tr><td class="L" data-da="Registrering af samtaleafslutning" data-en="Call-end detection"></td>
+    <td class="L" data-da="SESSION_ENDED-hændelsen på topic'et fanges — agenten får besked om, at resuméet kan genereres, i samme øjeblik kunden lægger på."
+        data-en="The SESSION_ENDED event on the topic is captured — the agent is notified that the summary can be generated the moment the customer hangs up."></td></tr>
+<tr><td class="L" data-da="Hent i efterbehandling (ACW)" data-en="Fetch during wrap-up (ACW)"></td>
+    <td class="L" data-da="Fallback via Speech &amp; Text Analytics: transcripturl-endpointet giver hele transskriptionen efter samtalen (typisk klar efter 1-2 min.). Widget'en finder selv communicationId'er fra conversation-objektet."
+        data-en="Fallback via Speech &amp; Text Analytics: the transcripturl endpoint returns the full transcript after the call (typically ready after 1-2 min). The widget resolves communicationIds from the conversation object automatically."></td></tr>
+<tr><td class="L" data-da="AI-resumé med fokuspunkter" data-en="AI summary with focus points"></td>
+    <td class="L" data-da="Fast struktur (årsag, hovedpunkter, aftaler, opfølgning) + frit definerede fokuspunkter (beløb, sagsnumre, GDPR-emner …), der injiceres i prompten. Resumésprog uafhængigt af UI-sprog."
+        data-en="Fixed structure (reason, key points, agreements, follow-ups) + freely defined focus points (amounts, case numbers, GDPR topics …) injected into the prompt. Summary language independent of UI language."></td></tr>
+<tr><td class="L" data-da="Fire AI-udbydere" data-en="Four AI providers"></td>
+    <td class="L" data-da="OpenAI, Gemini, Claude og Ollama (lokal — gratis, data forlader ikke organisationen). Modelnavn konfigurerbart pr. udbyder."
+        data-en="OpenAI, Gemini, Claude and Ollama (local — free, data never leaves the organisation). Model name configurable per provider."></td></tr>
+<tr><td class="L" data-da="Sammenligning" data-en="Comparison"></td>
+    <td class="L" data-da="Én knap kører samme prompt parallelt på alle konfigurerede udbydere og viser resultaterne under hinanden med svartid — direkte kvalitets-/pris-/hastighedssammenligning på rigtige samtaler."
+        data-en="One button runs the same prompt in parallel on all configured providers and shows the results side by side with response times — direct quality/cost/speed comparison on real calls."></td></tr>
+<tr><td class="L" data-da="Nøglehåndtering i tre niveauer" data-en="Three-tier key management"></td>
+    <td class="L" data-da="1) Function Data Action: nøgler kun i Genesys Credentials (anbefalet, produktion). 2) Cloudflare Worker: nøgler som server-secrets. 3) Direkte: nøgler i browserens localStorage (kun PoC). Se afsnit 5."
+        data-en="1) Function Data Action: keys only in Genesys Credentials (recommended, production). 2) Cloudflare Worker: keys as server secrets. 3) Direct: keys in the browser's localStorage (PoC only). See section 5."></td></tr>
+<tr><td class="L" data-da="Flersproget UI" data-en="Multilingual UI"></td>
+    <td class="L" data-da="Dansk, engelsk, fransk, tysk — vælges automatisk ud fra {{gcLangTag}} eller manuelt."
+        data-en="Danish, English, French, German — selected automatically from {{gcLangTag}} or manually."></td></tr>
+</table>
+
+<h2 class="L" data-da="3. Sekvens: automatisk realtidsflow" data-en="3. Sequence: automatic realtime flow"></h2>
+<div class="diagram">
+<svg viewBox="0 0 880 400" width="880" height="400" role="img" aria-label="Realtime sequence">
+<!-- lanes -->
+<text class="t-head" x="90" y="20" text-anchor="middle">Agent</text>
+<text class="t-head" x="300" y="20" text-anchor="middle">Widget</text>
+<text class="t-head" x="560" y="20" text-anchor="middle">Genesys Cloud</text>
+<text class="t-head" x="790" y="20" text-anchor="middle">AI</text>
+<line class="lane" x1="90" y1="30" x2="90" y2="380"/>
+<line class="lane" x1="300" y1="30" x2="300" y2="380"/>
+<line class="lane" x1="560" y1="30" x2="560" y2="380"/>
+<line class="lane" x1="790" y1="30" x2="790" y2="380"/>
+
+<path class="arrow" d="M90 50 L 296 50"/><text class="t-small" x="110" y="44">1. besvarer opkald → widget åbnes ({{gcConversationId}})</text>
+<path class="arrow arrow-gc" d="M300 80 L 556 80"/><text class="t-small" x="315" y="74">2. lydløst SSO-login (Implicit Grant)</text>
+<path class="arrow-dash arrow" d="M560 105 L 304 105"/><text class="t-small" x="330" y="99">3. access_token (redirect tilbage)</text>
+<path class="arrow arrow-gc" d="M300 135 L 556 135"/><text class="t-small" x="315" y="129">4. POST notifications/channels + subscribe topic</text>
+<path class="arrow-dash arrow arrow-gc" d="M560 165 L 304 165"/><text class="t-small" x="330" y="159">5. WSS: transskript-ytringer (løbende, 3-5 s)</text>
+<path class="arrow-dash arrow arrow-gc" d="M560 200 L 304 200"/><text class="t-small" x="330" y="194">6. SESSION_ENDED (kunden lagde på)</text>
+<path class="arrow-dash arrow" d="M300 228 L 94 228"/><text class="t-small" x="112" y="222">7. "Resumé kan genereres nu"</text>
+<path class="arrow" d="M90 258 L 296 258"/><text class="t-small" x="110" y="252">8. klik: Generér resumé</text>
+<path class="arrow arrow-ai" d="M300 288 L 786 288"/><text class="t-small" x="330" y="282">9. prompt (transskript + fokuspunkter) via valgt vej</text>
+<path class="arrow-dash arrow arrow-ai" d="M790 318 L 304 318"/><text class="t-small" x="330" y="312">10. struktureret resumé</text>
+<path class="arrow-dash arrow" d="M300 348 L 94 348"/><text class="t-small" x="100" y="342">11. kopiér → wrap-up-noter → Done</text>
+</svg>
+<div class="cap L" data-da="Fig. 2 — Trin 1-7 kræver ingen agenthandling. Transskriptionen er komplet i samme sekund kunden lægger på." data-en="Fig. 2 — Steps 1-7 require no agent action. The transcript is complete the moment the customer hangs up."></div>
+</div>
+
+<h2 class="L" data-da="4. Sekvens: hent i efterbehandling (fallback)" data-en="4. Sequence: fetch during wrap-up (fallback)"></h2>
+<div class="diagram">
+<svg viewBox="0 0 880 240" width="880" height="240" role="img" aria-label="Fetch sequence">
+<text class="t-head" x="150" y="20" text-anchor="middle">Widget</text>
+<text class="t-head" x="500" y="20" text-anchor="middle">Genesys Cloud API</text>
+<text class="t-head" x="780" y="20" text-anchor="middle">S3 (signeret URL)</text>
+<line class="lane" x1="150" y1="30" x2="150" y2="220"/>
+<line class="lane" x1="500" y1="30" x2="500" y2="220"/>
+<line class="lane" x1="780" y1="30" x2="780" y2="220"/>
+<path class="arrow arrow-gc" d="M150 55 L 496 55"/><text class="t-small" x="170" y="49">1. GET /conversations/{id} → find communicationId'er</text>
+<path class="arrow arrow-gc" d="M150 95 L 496 95"/><text class="t-small" x="170" y="89">2. GET …/speechandtextanalytics/…/{commId}/transcripturl</text>
+<path class="arrow-dash arrow" d="M500 125 L 154 125"/><text class="t-small" x="180" y="119">3. { url: signeret download-URL }</text>
+<path class="arrow" d="M150 160 L 776 160"/><text class="t-small" x="170" y="154">4. GET url → transskript-JSON (phrases m. participantPurpose + startTimeMs)</text>
+<path class="arrow-dash arrow" d="M780 195 L 154 195"/><text class="t-small" x="180" y="189">5. parsing → visning + resumé-input</text>
+</svg>
+<div class="cap L" data-da="Fig. 3 — Bruges hvis realtid ikke var aktiv. Transskriptionen er typisk klar 1-2 min. efter samtalens afslutning." data-en="Fig. 3 — Used if realtime was not active. The transcript is typically ready 1-2 min after the call ends."></div>
+</div>
+
+<h2 class="L" data-da="5. AI-vej og nøgleprioritering" data-en="5. AI path and key precedence"></h2>
+<div class="diagram">
+<svg viewBox="0 0 880 300" width="880" height="300" role="img" aria-label="Key precedence decision">
+<rect class="box box-w" x="330" y="15" width="220" height="40" rx="8"/>
+<text x="440" y="40" text-anchor="middle" class="t-head">Generér resumé</text>
+
+<rect class="box box-sec" x="60" y="105" width="230" height="70" rx="8"/>
+<text class="t-head" x="175" y="128" text-anchor="middle">1. Function Data Action?</text>
+<text class="t-small" x="175" y="145" text-anchor="middle">Action ID sat → kør i Genesys</text>
+<text class="t-small" x="175" y="160" text-anchor="middle">Nøgler: KUN Credentials-tab</text>
+
+<rect class="box box-sec" x="330" y="105" width="230" height="70" rx="8"/>
+<text class="t-head" x="445" y="128" text-anchor="middle">2. Proxy-URL?</text>
+<text class="t-small" x="445" y="145" text-anchor="middle">Server-secret vinder ALTID</text>
+<text class="t-small" x="445" y="160" text-anchor="middle">klientnøgle kun fallback</text>
+
+<rect class="box" x="600" y="105" width="230" height="70" rx="8"/>
+<text class="t-head" x="715" y="128" text-anchor="middle">3. Direkte</text>
+<text class="t-small" x="715" y="145" text-anchor="middle">nøgle fra localStorage</text>
+<text class="t-small" x="715" y="160" text-anchor="middle">kun PoC / pilot</text>
+
+<path class="arrow" d="M380 55 L 200 102"/><text class="t-small" x="240" y="80">ja</text>
+<path class="arrow" d="M440 55 L 443 102"/><text class="t-small" x="450" y="80">ellers: proxy sat?</text>
+<path class="arrow" d="M505 55 L 690 102"/><text class="t-small" x="620" y="80">ellers</text>
+
+<rect class="box box-ai" x="330" y="225" width="230" height="50" rx="8"/>
+<text class="t-head" x="445" y="248" text-anchor="middle">OpenAI / Gemini / Claude / Ollama</text>
+<text class="t-small" x="445" y="264" text-anchor="middle">model + prompt m. fokuspunkter</text>
+<path class="arrow arrow-ai" d="M175 175 C 175 230, 280 250, 327 250"/>
+<path class="arrow arrow-ai" d="M445 175 L 445 222"/>
+<path class="arrow arrow-ai" d="M715 175 C 715 230, 610 250, 563 250"/>
+</svg>
+<div class="cap L" data-da="Fig. 4 — Prioritering: Data Action &gt; Proxy &gt; Direkte. På hvert niveau vinder server-side nøgler over klient-nøgler." data-en="Fig. 4 — Precedence: Data Action &gt; Proxy &gt; Direct. At every level, server-side keys win over client keys."></div>
+</div>
+
+<table>
+<tr><th class="L" data-da="Vej" data-en="Path"></th>
+    <th class="L" data-da="Nøgler ligger i" data-en="Keys live in"></th>
+    <th class="L" data-da="Fordele" data-en="Advantages"></th>
+    <th class="L" data-da="Overvejelser" data-en="Considerations"></th></tr>
+<tr><td>Function Data Action</td>
+    <td class="L" data-da="Genesys-integrationens Credentials-tab" data-en="The Genesys integration's Credentials tab"></td>
+    <td class="L" data-da="Ingen ekstra infrastruktur; nøgler forlader aldrig Genesys; adgang styres af Genesys-permissions (integrations:action:execute); fuld audit i Genesys" data-en="No extra infrastructure; keys never leave Genesys; access governed by Genesys permissions (integrations:action:execute); full audit inside Genesys"></td>
+    <td class="L" data-da="Timeout-loft på data actions; Ollama kræver offentligt/tunneleret endpoint" data-en="Data action timeout ceiling; Ollama requires a public/tunneled endpoint"></td></tr>
+<tr><td>Cloudflare Worker</td>
+    <td class="L" data-da="Worker-secrets (wrangler secret put)" data-en="Worker secrets (wrangler secret put)"></td>
+    <td class="L" data-da="Uafhængig af Genesys; origin-lås + delt token; keySource i svaret viser hvilken nøgle der blev brugt" data-en="Independent of Genesys; origin lock + shared token; keySource in the response shows which key was used"></td>
+    <td class="L" data-da="Ekstern komponent at drifte; Ollama skal kunne nås fra Cloudflare" data-en="External component to operate; Ollama must be reachable from Cloudflare"></td></tr>
+<tr><td class="L" data-da="Direkte" data-en="Direct"></td>
+    <td class="L" data-da="Browserens localStorage" data-en="The browser's localStorage"></td>
+    <td class="L" data-da="Nul opsætning — hurtigste vej til pilot; Ollama på localhost virker" data-en="Zero setup — fastest path to a pilot; Ollama on localhost works"></td>
+    <td class="L" data-da="Nøgler synlige for agenten — kun til PoC" data-en="Keys visible to the agent — PoC only"></td></tr>
+</table>
+
+<h2 class="L" data-da="6. Komponenter og filer" data-en="6. Components and files"></h2>
+<table>
+<tr><th class="L" data-da="Fil" data-en="File"></th><th class="L" data-da="Rolle" data-en="Role"></th></tr>
+<tr><td><code>index.html</code></td><td class="L" data-da="UI, styling og i18n-ordbog (4 sprog). Tre faner: Transskription, Resumé, Opsætning." data-en="UI, styling and i18n dictionary (4 languages). Three tabs: Transcript, Summary, Setup."></td></tr>
+<tr><td><code>app.js</code></td><td class="L" data-da="Al logik: OAuth, WebSocket-realtid, transcripturl-hentning, AI-kald (4 udbydere, 3 veje), sammenligning, clipboard, konfiguration." data-en="All logic: OAuth, WebSocket realtime, transcripturl fetching, AI calls (4 providers, 3 paths), comparison, clipboard, configuration."></td></tr>
+<tr><td><code>proxy-worker.js</code></td><td class="L" data-da="Cloudflare Worker: POST /summarize, server-secrets med forrang, origin-/token-hærdning, Ollama-videresendelse." data-en="Cloudflare Worker: POST /summarize, server secrets take precedence, origin/token hardening, Ollama forwarding."></td></tr>
+<tr><td><code>gc-function/src/index.js</code></td><td class="L" data-da="Function Data Action-handler (nodejs20.x). Nøgler injiceres via Request Body Template fra Credentials-tab." data-en="Function Data Action handler (nodejs20.x). Keys injected via the Request Body Template from the Credentials tab."></td></tr>
+<tr><td><code>function-ai-summary.zip</code></td><td class="L" data-da="Færdigpakket funktion, klar til upload i integrationen." data-en="Pre-packaged function, ready to upload in the integration."></td></tr>
+<tr><td><code>gc-function/CONTRACTS.md</code></td><td class="L" data-da="Input-/output-kontrakter, Request Body Template og translation map til copy/paste." data-en="Input/output contracts, Request Body Template and translation map for copy/paste."></td></tr>
+<tr><td><code>SYSTEM.html</code></td><td class="L" data-da="Dette dokument (DA/EN)." data-en="This document (DA/EN)."></td></tr>
+</table>
+
+<h2 class="L" data-da="7. Krav og permissions" data-en="7. Requirements and permissions"></h2>
+<table>
+<tr><th class="L" data-da="Område" data-en="Area"></th><th class="L" data-da="Krav" data-en="Requirement"></th></tr>
+<tr><td class="L" data-da="Transskription" data-en="Transcription"></td>
+    <td class="L" data-da="Voice Transcription aktiveret på kø/flow; Low Latency Transcription anbefales (3-5 s vs. ~35 s); Cloud Edge (Genesys Cloud Voice eller BYOC Cloud) — BYOC Premises understøtter ikke realtidstopic'et." data-en="Voice Transcription enabled on queue/flow; Low Latency Transcription recommended (3-5 s vs ~35 s); Cloud Edge (Genesys Cloud Voice or BYOC Cloud) — BYOC Premises does not support the realtime topic."></td></tr>
+<tr><td>Permissions</td>
+    <td><code>conversation:transcription:view</code> · <code>speechAndTextAnalytics:data:view</code> · <code>recording:recording:view</code> · <code>integrations:action:execute</code> <span class="L" data-da="(kun ved Data Action-vejen)" data-en="(Data Action path only)"></span></td></tr>
+<tr><td>OAuth</td>
+    <td class="L" data-da="Token Implicit Grant-klient med widget-URL som redirect URI; scopes: conversations, speech-and-text-analytics, notifications (+ integrations ved Data Action)." data-en="Token Implicit Grant client with the widget URL as redirect URI; scopes: conversations, speech-and-text-analytics, notifications (+ integrations for the Data Action path)."></td></tr>
+<tr><td>Widget</td>
+    <td class="L" data-da="Interaction Widget-integration med URL-interpolation {{gcConversationId}} og {{gcLangTag}}; sandbox: allow-scripts, allow-same-origin, allow-forms, allow-popups; feature: clipboard-write." data-en="Interaction Widget integration with {{gcConversationId}} and {{gcLangTag}} URL interpolation; sandbox: allow-scripts, allow-same-origin, allow-forms, allow-popups; feature: clipboard-write."></td></tr>
+</table>
+
+<h2 class="L" data-da="8. Afgrænsning: MCP og Genesys" data-en="8. Scoping: MCP and Genesys"></h2>
+
+<p class="L"
+ data-da="»Genesys MCP« dækker over to forskellige ting, og kun den ene kan levere transskripter. Genesys' egen MCP-understøttelse (Copilot/Virtual Agent, GA nov. 2025–jan. 2026, udvidet med Pinkfish-opkøbet juni 2026) gør Genesys til MCP-klient: AI-agenter i platformen kan kalde eksterne systemer. Den eksponerer ikke transskripter. Community-MCP-servere (f.eks. MakingChatbots' genesys-cloud-mcp-server) wrapper derimod Platform API'et og har et transcript-tool — som bruger samme transcripturl-endpoint som denne widgets hent-funktion, med samme efter-samtale-latenstid."
+ data-en="“Genesys MCP” covers two different things, and only one of them can deliver transcripts. Genesys' own MCP support (Copilot/Virtual Agent, GA Nov 2025–Jan 2026, expanded via the Pinkfish acquisition in June 2026) makes Genesys an MCP client: AI agents in the platform can call external systems. It does not expose transcripts. Community MCP servers (e.g. MakingChatbots' genesys-cloud-mcp-server), on the other hand, wrap the Platform API and include a transcript tool — using the same transcripturl endpoint as this widget's fetch function, with the same post-call latency."></p>
+
+<div class="diagram">
+<svg viewBox="0 0 880 210" width="880" height="210" role="img" aria-label="MCP scoping">
+<rect class="box box-w" x="20" y="30" width="250" height="70" rx="8"/>
+<text class="t-head" x="145" y="55" text-anchor="middle">Denne widget</text>
+<text class="t-small" x="145" y="72" text-anchor="middle">agent · realtid · resumé inden Done</text>
+<text class="t-small" x="145" y="87" text-anchor="middle">i Genesys agent-UI</text>
+
+<rect class="box box-sec" x="315" y="30" width="250" height="70" rx="8"/>
+<text class="t-head" x="440" y="55" text-anchor="middle">Community MCP-server</text>
+<text class="t-small" x="440" y="72" text-anchor="middle">supervisor/QM · efterfølgende analyse</text>
+<text class="t-small" x="440" y="87" text-anchor="middle">Claude Desktop / Cowork / CLI</text>
+
+<rect class="box box-ai" x="610" y="30" width="250" height="70" rx="8"/>
+<text class="t-head" x="735" y="55" text-anchor="middle">Genesys native MCP</text>
+<text class="t-small" x="735" y="72" text-anchor="middle">Copilot / Virtual Agent = MCP-klient</text>
+<text class="t-small" x="735" y="87" text-anchor="middle">kalder eksterne systemer</text>
+
+<rect class="box" x="315" y="150" width="250" height="42" rx="8"/>
+<text x="440" y="168" text-anchor="middle">Genesys Cloud Platform API</text>
+<text class="t-mono" x="440" y="184" text-anchor="middle">transcripturl · analytics · sentiment</text>
+
+<path class="arrow arrow-gc" d="M145 100 C 145 140, 280 168, 312 168"/>
+<path class="arrow arrow-sec" d="M440 100 L 440 147"/>
+<path class="arrow-dash arrow arrow-ai" d="M735 100 C 735 150, 830 190, 870 195"/>
+<text class="t-small" x="760" y="150">→ CRM / ERP / egne tools</text>
+</svg>
+<div class="cap L" data-da="Fig. 5 — Widget og MCP-server henter begge data FRA Platform API'et; Genesys' native MCP peger den modsatte vej (ud af platformen)." data-en="Fig. 5 — The widget and the MCP server both pull data FROM the Platform API; Genesys' native MCP points the opposite way (out of the platform)."></div>
+</div>
+
+<table>
+<tr><th class="L" data-da="Scenarie" data-en="Scenario"></th>
+    <th class="L" data-da="Rigtigt værktøj" data-en="Right tool"></th>
+    <th class="L" data-da="Hvorfor" data-en="Why"></th></tr>
+<tr><td class="L" data-da="Agent skal have resumé INDEN Done (også når kunden har lagt på)" data-en="Agent needs the summary BEFORE Done (even after the customer hung up)"></td>
+    <td class="L" data-da="Denne widget (realtid)" data-en="This widget (realtime)"></td>
+    <td class="L" data-da="MCP kan ikke embeddes i en Interaction Widget og har ingen realtidstransskription — transcript-toolet har samme latenstid som transcripturl (1-2 min. efter samtalen)." data-en="MCP cannot be embedded in an Interaction Widget and has no realtime transcription — the transcript tool has the same latency as transcripturl (1-2 min after the call)."></td></tr>
+<tr><td class="L" data-da="Supervisor/QM: »opsummér gårsdagens eskalerede kald i kø X«, bulk-summering, undersøgelser på tværs af samtaler" data-en="Supervisor/QM: “summarise yesterday's escalated calls in queue X”, bulk summarisation, cross-conversation investigations"></td>
+    <td class="L" data-da="Community MCP-server i Claude Desktop / Cowork" data-en="Community MCP server in Claude Desktop / Cowork"></td>
+    <td class="L" data-da="Kombinerer transcript-, sentiment-, topics- og analytics-tools konversationelt; client credentials-OAuth; ingen agent-UI nødvendig. Latenstid er irrelevant efter samtalen." data-en="Combines transcript, sentiment, topics and analytics tools conversationally; client-credentials OAuth; no agent UI needed. Latency is irrelevant after the call."></td></tr>
+<tr><td class="L" data-da="Virtual Agent/Copilot skal UDFØRE handlinger i eksterne systemer (CRM-opslag, ordrestatus …)" data-en="Virtual Agent/Copilot needs to PERFORM actions in external systems (CRM lookups, order status …)"></td>
+    <td class="L" data-da="Genesys native MCP (Copilot/Virtual Agent + Pinkfish)" data-en="Genesys native MCP (Copilot/Virtual Agent + Pinkfish)"></td>
+    <td class="L" data-da="Genesys er her MCP-klient — det er handlings-orkestrering, ikke transskript-adgang. Genesys Copilot har i øvrigt egen indbygget (licenseret) samtaleopsummering som alternativ til denne widget." data-en="Genesys is the MCP client here — this is action orchestration, not transcript access. Note that Genesys Copilot also offers its own built-in (licensed) call summarisation as an alternative to this widget."></td></tr>
+</table>
+
+<div class="note L"
+ data-da="Databeskyttelse: Med Ollama-vejen (direkte eller via intern server) forlader hverken transskript eller resumé organisationens infrastruktur. Med Data Action-/proxy-vejen sendes transskriptet til den valgte cloud-AI-udbyder — afklar databehandleraftale og region (EU-endpoints) inden produktion."
+ data-en="Data protection: With the Ollama path (direct or via an internal server), neither transcript nor summary ever leaves the organisation's infrastructure. With the Data Action/proxy path, the transcript is sent to the chosen cloud AI provider — clarify DPA and region (EU endpoints) before production."></div>
+
+<footer>Genesys Transcript &amp; AI Summary Widget · v1.3.1 · Sabio / skndkprivat</footer>
+
+<script>
+function setLang(l){
+  document.documentElement.lang = l;
+  document.querySelectorAll(".L").forEach(e => { e.innerHTML = e.dataset[l] || e.dataset.da; });
+  document.getElementById("bDA").classList.toggle("on", l === "da");
+  document.getElementById("bEN").classList.toggle("on", l === "en");
+  // diagram labels (SVG text uses Danish inline; swap the few EN-critical ones)
+}
+document.getElementById("bDA").onclick = () => setLang("da");
+document.getElementById("bEN").onclick = () => setLang("en");
+setLang("da");
+</script>
+</body>
+</html>
