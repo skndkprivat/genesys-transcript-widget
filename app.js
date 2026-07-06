@@ -129,15 +129,25 @@ function b64url(bytes) {
     .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
+function encodeState() {
+  // context that must survive the OAuth redirect — returned verbatim by Genesys
+  try { return btoa(JSON.stringify({ c: conversationId, l: cfg.uiLang })).replace(/=+$/, ""); }
+  catch { return ""; }
+}
+function decodeState(s) {
+  try { return JSON.parse(atob(s)); } catch { return {}; }
+}
+
 async function login() {
   saveForm();
   if (!cfg.clientId) { msg("err", T.errGeneric + "OAuth Client ID?"); log("err", "Login aborted: no Client ID"); return; }
   sessionStorage.setItem("gcCtx", JSON.stringify({ conversationId }));
   const redirect = redirectUri();
+  const state = encodeState();
   const base = `https://login.${cfg.region}/oauth/authorize`;
   if (cfg.authType === "implicit") {
     log("info", `OAuth (implicit) → ${base} · clientId=${cfg.clientId} · redirect=${redirect}`);
-    location.href = `${base}?response_type=token&client_id=${encodeURIComponent(cfg.clientId)}&redirect_uri=${encodeURIComponent(redirect)}`;
+    location.href = `${base}?response_type=token&client_id=${encodeURIComponent(cfg.clientId)}&redirect_uri=${encodeURIComponent(redirect)}&state=${encodeURIComponent(state)}`;
     return;
   }
   // PKCE: code verifier + S256 challenge
@@ -149,6 +159,7 @@ async function login() {
   log("info", `OAuth (PKCE) → ${base} · clientId=${cfg.clientId} · redirect=${redirect}`);
   location.href = `${base}?response_type=code&client_id=${encodeURIComponent(cfg.clientId)}`
     + `&redirect_uri=${encodeURIComponent(redirect)}`
+    + `&state=${encodeURIComponent(state)}`
     + `&code_challenge=${challenge}&code_challenge_method=S256`;
 }
 
@@ -201,8 +212,14 @@ async function handleAuthReturn() {
     }
     history.replaceState(null, "", location.pathname);
   }
-  const ctx = JSON.parse(sessionStorage.getItem("gcCtx") || "{}");
-  if (!conversationId && ctx.conversationId) conversationId = ctx.conversationId;
+  // restore context: OAuth state param (survives redirect guaranteed) -> gcCtx fallback
+  const st = qs.get("state") || hs.get("state");
+  if (st) {
+    const ctx = decodeState(st);
+    if (!conversationId && ctx.c) { conversationId = ctx.c; log("info", "conversationId restored from OAuth state: " + ctx.c); }
+  }
+  const ctx2 = JSON.parse(sessionStorage.getItem("gcCtx") || "{}");
+  if (!conversationId && ctx2.conversationId) { conversationId = ctx2.conversationId; log("info", "conversationId restored from sessionStorage: " + ctx2.conversationId); }
 }
 
 function logout() {
@@ -413,12 +430,19 @@ async function callProvider(provider, prompt) {
 
   } else if (provider === "ollama") {
     const base = (cfg.ollamaUrl || "http://localhost:11434").replace(/\/$/, "");
-    const r = await fetch(base + "/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: cfg.modelOllama || "llama3.1", stream: false, messages: [{ role: "user", content: prompt }] })
-    });
-    const d = await r.json();
+    let r;
+    try {
+      r = await fetch(base + "/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: cfg.modelOllama || "llama3.1", stream: false, messages: [{ role: "user", content: prompt }] })
+      });
+    } catch (e) {
+      // network-level failure = Ollama not running, wrong URL, or CORS blocked
+      throw new Error(T.ollamaCors + " (" + e.message + ")");
+    }
+    const d = await r.json().catch(() => ({}));
+    if (r.status === 403) throw new Error(T.ollamaCors + " (403)");
     if (!r.ok) throw new Error(d.error || ("Ollama " + r.status));
     out = d.message?.content || "";
 
@@ -478,6 +502,7 @@ async function summarize() {
     $("summaryOut").textContent = res.text;
     msg("info", `${PROVIDER_NAME[provider]} · ${(res.ms / 1000).toFixed(1)}s`);
   } catch (e) {
+    log("err", `AI error (${provider}): ${e.message}`);
     msg("err", T.errGeneric + e.message, true);
   } finally {
     btn.disabled = false;
@@ -499,6 +524,7 @@ async function compareProviders() {
   const outEl = $("summaryOut");
   outEl.textContent = "";
   const results = await Promise.allSettled(provs.map(p => callProvider(p, prompt)));
+  results.forEach((r, i) => { if (r.status === "rejected") log("err", `AI error (${provs[i]}): ${r.reason.message}`); });
   outEl.textContent = results.map((r, i) => {
     const head = `━━━ ${PROVIDER_NAME[provs[i]]}` +
       (r.status === "fulfilled" ? ` · ${(r.value.ms / 1000).toFixed(1)}s` : "") + ` ━━━`;
@@ -568,7 +594,8 @@ async function init() {
   const lang = (q.get("langTag") || q.get("gcLangTag") || "").slice(0, 2).toLowerCase();
   if (lang && I18N[lang] && !localStorage.getItem(LS)) { cfg.uiLang = lang; cfg.sumLang = lang; }
 
-  log("info", `Widget start v1.4.0 · region=${cfg.region} · authType=${cfg.authType} · conversationId=${conversationId || "(none)"}`);
+  log("info", `Widget start v1.4.1 · region=${cfg.region} · authType=${cfg.authType} · conversationId=${conversationId || "(none)"}`);
+  log("info", "URL query: " + (location.search || "(empty)"));
   await handleAuthReturn();
   loadForm();
   applyLang();
