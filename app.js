@@ -23,7 +23,7 @@ let cfg = { ...defaults, ...(JSON.parse(localStorage.getItem(LS) || "{}")) };
 
 let token = sessionStorage.getItem("gcToken") || "";
 let conversationId = "";
-let ws = null, channelId = "", liveActive = false;
+let ws = null, channelId = "", liveActive = false, liveConvId = "";
 let utterances = new Map();   // utteranceId -> {who, offsetMs, text, isFinal}
 let fetchedPhrases = [];      // from transcripturl: [{who, offsetMs, text}]
 let T = I18N[cfg.uiLang] || I18N.da;
@@ -277,6 +277,7 @@ async function startLive(auto) {
   };
   ws.onclose = e => { log("warn", "WebSocket closed (code " + e.code + ")"); if (liveActive) stopLive(true); };
   liveActive = true;
+  liveConvId = conversationId;
   $("livePill").hidden = false; $("livePill").className = "pill live"; $("livePill").textContent = "LIVE";
   applyLang();
   msg("info", auto ? T.liveAuto : T.liveOn);
@@ -284,6 +285,7 @@ async function startLive(auto) {
 
 function stopLive(silent) {
   liveActive = false;
+  liveConvId = "";
   if (ws) { try { ws.close(); } catch (e) {} ws = null; }
   if (channelId && token) {
     fetch(api(`/api/v2/notifications/channels/${channelId}/subscriptions`), {
@@ -627,7 +629,16 @@ async function init() {
   $("btnCopyS").addEventListener("click", () => copyText($("summaryOut").textContent));
   $("btnLogin").addEventListener("click", login);
   $("btnLogout").addEventListener("click", logout);
-  $("btnSave").addEventListener("click", () => { saveForm(); applyLang(); msg("info", T.saved); });
+  $("btnSave").addEventListener("click", () => {
+    saveForm(); applyLang(); msg("info", T.saved);
+    // conversationId changed while a live subscription is running (or none yet):
+    // resubscribe automatically so the agent never has to stop/start manually
+    if (conversationId && conversationId !== liveConvId) {
+      log("info", "conversationId changed -> resubscribing (" + (liveConvId || "none") + " -> " + conversationId + ")");
+      if (liveActive) stopLive(true);
+      if (token) startLive(true).catch(e => msg("warn", T.errGeneric + e.message, true));
+    }
+  });
   $("uiLang").addEventListener("change", () => { cfg.uiLang = $("uiLang").value; applyLang(); renderStream(); });
   $("focusPoints").addEventListener("change", () => { cfg.focusPoints = $("focusPoints").value; localStorage.setItem(LS, JSON.stringify(cfg)); });
   $("btnLogCopy").addEventListener("click", () => copyText(logAsText()));
