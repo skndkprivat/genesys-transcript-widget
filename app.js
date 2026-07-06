@@ -16,6 +16,7 @@ const defaults = {
   proxyUrl: "",
   gcActionId: "",
   autoStart: true,
+  authType: "pkce",
   focusPoints: ""
 };
 let cfg = { ...defaults, ...(JSON.parse(localStorage.getItem(LS) || "{}")) };
@@ -27,49 +28,77 @@ let utterances = new Map();   // utteranceId -> {who, offsetMs, text, isFinal}
 let fetchedPhrases = [];      // from transcripturl: [{who, offsetMs, text}]
 let T = I18N[cfg.uiLang] || I18N.da;
 
+/* ---------------- system log ---------------- */
+const LOGBUF = [];
+function log(level, msg) {
+  const ts = new Date().toISOString().substring(11, 23);
+  LOGBUF.push({ ts, level, msg: String(msg) });
+  if (LOGBUF.length > 500) LOGBUF.shift();
+  const fn = level === "err" ? "error" : level === "warn" ? "warn" : "info";
+  console[fn]("[widget " + ts + "]", msg);
+  renderLog();
+}
+function renderLog() {
+  const el = document.getElementById("logView");
+  if (!el) return;
+  el.innerHTML = LOGBUF.map(r =>
+    `<div class="logrow ${r.level}"><span class="logts">${r.ts}</span><span>${r.msg.replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]))}</span></div>`
+  ).join("");
+  el.scrollTop = el.scrollHeight;
+}
+function logAsText() {
+  return LOGBUF.map(r => `${r.ts} [${r.level.toUpperCase()}] ${r.msg}`).join("\n");
+}
+
 const $ = id => document.getElementById(id);
+const setTxt = (id, v) => { const e = $(id); if (e) e.textContent = v; };
 const api = path => `https://api.${cfg.region}${path}`;
 
 /* ---------------- i18n rendering ---------------- */
 function applyLang() {
   T = I18N[cfg.uiLang] || I18N.da;
   document.documentElement.lang = cfg.uiLang;
-  $("t-title").textContent = T.title;
-  $("nav-transcript").textContent = T.tabT;
-  $("nav-summary").textContent = T.tabS;
-  $("nav-settings").textContent = T.tabC;
-  $("btnLive").textContent = liveActive ? T.liveStop : T.live;
-  $("btnFetch").textContent = T.fetch;
-  $("btnCopyT").textContent = T.copyT;
-  $("btnClear").textContent = T.clear;
-  $("t-hint-transcript").textContent = T.hintT;
-  $("t-empty").textContent = T.empty;
-  $("t-lbl-focus").textContent = T.lblFocus;
-  $("focusPoints").placeholder = T.focusPh;
-  $("t-lbl-provider").textContent = T.lblProvider;
-  $("btnSummarize").textContent = T.summarize;
-  $("btnCopyS").textContent = T.copyS;
-  $("summaryOut").setAttribute("data-empty", T.sumEmpty);
-  $("t-leg-genesys").textContent = T.legGenesys;
-  $("t-lbl-region").textContent = T.lblRegion;
-  $("t-lbl-clientid").textContent = T.lblClientId;
-  $("t-lbl-convid").textContent = T.lblConvId;
-  $("btnLogin").textContent = T.login;
-  $("btnLogout").textContent = T.logout;
-  $("btnSave").textContent = T.save;
-  $("t-hint-keys").textContent = T.hintKeys;
-  $("t-lbl-proxy").textContent = T.lblProxy;
-  $("t-hint-proxy").textContent = T.hintProxy;
-  $("t-lbl-action").textContent = T.lblAction;
-  $("t-hint-action").textContent = T.hintAction;
-  $("t-lbl-autostart").textContent = T.lblAutoStart;
-  $("t-lbl-ollama").textContent = T.lblOllama;
-  $("t-hint-ollama").textContent = T.hintOllama;
-  $("btnCompare").textContent = T.compare;
-  $("t-leg-ui").textContent = T.legUI;
-  $("t-lbl-uilang").textContent = T.lblUiLang;
-  $("authPill").textContent = token ? T.authOk : T.authNo;
-  $("authPill").className = "pill " + (token ? "auth-ok" : "auth-no");
+  setTxt("t-title", T.title);
+  setTxt("nav-transcript", T.tabT);
+  setTxt("nav-summary", T.tabS);
+  setTxt("nav-settings", T.tabC);
+  setTxt("btnLive", liveActive ? T.liveStop : T.live);
+  setTxt("btnFetch", T.fetch);
+  setTxt("btnCopyT", T.copyT);
+  setTxt("btnClear", T.clear);
+  setTxt("t-hint-transcript", T.hintT);
+  setTxt("t-empty", T.empty);
+  setTxt("t-lbl-focus", T.lblFocus);
+  if ($("focusPoints")) $("focusPoints").placeholder = T.focusPh;
+  setTxt("t-lbl-provider", T.lblProvider);
+  setTxt("btnSummarize", T.summarize);
+  setTxt("btnCopyS", T.copyS);
+  if ($("summaryOut")) $("summaryOut").setAttribute("data-empty", T.sumEmpty);
+  setTxt("t-leg-genesys", T.legGenesys);
+  setTxt("t-lbl-region", T.lblRegion);
+  setTxt("t-lbl-clientid", T.lblClientId);
+  setTxt("t-lbl-grant", T.lblGrant);
+  setTxt("nav-log", T.tabLog);
+  setTxt("btnLogCopy", T.copyT);
+  setTxt("btnLogSave", T.logSave);
+  setTxt("btnLogClear", T.clear);
+  setTxt("t-lbl-convid", T.lblConvId);
+  setTxt("btnLogin", T.login);
+  setTxt("btnLogout", T.logout);
+  setTxt("btnSave", T.save);
+  setTxt("t-hint-keys", T.hintKeys);
+  setTxt("t-lbl-proxy", T.lblProxy);
+  setTxt("t-hint-proxy", T.hintProxy);
+  setTxt("t-lbl-action", T.lblAction);
+  setTxt("t-hint-action", T.hintAction);
+  setTxt("t-lbl-autostart", T.lblAutoStart);
+  setTxt("t-lbl-ollama", T.lblOllama);
+  setTxt("t-hint-ollama", T.hintOllama);
+  setTxt("btnCompare", T.compare);
+  setTxt("t-leg-ui", T.legUI);
+  setTxt("t-lbl-uilang", T.lblUiLang);
+  setTxt("authPill", token ? T.authOk : T.authNo);
+  if ($("authPill")) $("authPill").className = "pill " + (token ? "auth-ok" : "auth-no");
 }
 
 function msg(kind, text, sticky) {
@@ -88,27 +117,92 @@ document.querySelectorAll("nav button").forEach(b => b.addEventListener("click",
   $("tab-" + b.dataset.tab).classList.add("active");
 }));
 
-/* ---------------- OAuth (Implicit Grant, public client) ---------------- */
-function login() {
-  saveForm();
-  if (!cfg.clientId) { msg("err", T.errGeneric + "OAuth Client ID?"); return; }
-  // preserve context across the redirect
-  sessionStorage.setItem("gcCtx", JSON.stringify({ conversationId }));
-  const redirect = location.origin + location.pathname;
-  location.href = `https://login.${cfg.region}/oauth/authorize`
-    + `?response_type=token&client_id=${encodeURIComponent(cfg.clientId)}`
-    + `&redirect_uri=${encodeURIComponent(redirect)}`;
+/* ---------------- OAuth: PKCE (default) or Implicit ---------------- */
+function redirectUri() {
+  // must match the URI registered on the OAuth client EXACTLY.
+  // Normalises .../index.html -> .../ so a trailing-slash registration works.
+  return location.origin + location.pathname.replace(/index\.html$/, "");
 }
 
-function handleAuthReturn() {
-  if (location.hash.includes("access_token=")) {
-    const p = new URLSearchParams(location.hash.substring(1));
-    token = p.get("access_token") || "";
-    if (token) sessionStorage.setItem("gcToken", token);
-    history.replaceState(null, "", location.pathname + location.search);
-    const ctx = JSON.parse(sessionStorage.getItem("gcCtx") || "{}");
-    if (!conversationId && ctx.conversationId) conversationId = ctx.conversationId;
+function b64url(bytes) {
+  return btoa(String.fromCharCode(...new Uint8Array(bytes)))
+    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+async function login() {
+  saveForm();
+  if (!cfg.clientId) { msg("err", T.errGeneric + "OAuth Client ID?"); log("err", "Login aborted: no Client ID"); return; }
+  sessionStorage.setItem("gcCtx", JSON.stringify({ conversationId }));
+  const redirect = redirectUri();
+  const base = `https://login.${cfg.region}/oauth/authorize`;
+  if (cfg.authType === "implicit") {
+    log("info", `OAuth (implicit) → ${base} · clientId=${cfg.clientId} · redirect=${redirect}`);
+    location.href = `${base}?response_type=token&client_id=${encodeURIComponent(cfg.clientId)}&redirect_uri=${encodeURIComponent(redirect)}`;
+    return;
   }
+  // PKCE: code verifier + S256 challenge
+  const rnd = crypto.getRandomValues(new Uint8Array(32));
+  const verifier = b64url(rnd);
+  sessionStorage.setItem("gcVerifier", verifier);
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+  const challenge = b64url(digest);
+  log("info", `OAuth (PKCE) → ${base} · clientId=${cfg.clientId} · redirect=${redirect}`);
+  location.href = `${base}?response_type=code&client_id=${encodeURIComponent(cfg.clientId)}`
+    + `&redirect_uri=${encodeURIComponent(redirect)}`
+    + `&code_challenge=${challenge}&code_challenge_method=S256`;
+}
+
+async function handleAuthReturn() {
+  const qs = new URLSearchParams(location.search);
+  const hs = new URLSearchParams(location.hash.substring(1));
+  const err = qs.get("error") || hs.get("error");
+  if (err) {
+    const desc = qs.get("error_description") || hs.get("error_description") || "";
+    history.replaceState(null, "", location.pathname);
+    log("err", `OAuth error from Genesys: ${err} ${desc}`);
+    setTimeout(() => msg("err", T.errGeneric + "OAuth: " + err + (desc ? " — " + desc : "") + " · " + T.authHint, true), 0);
+    return;
+  }
+  // Implicit return: #access_token=...
+  if (location.hash.includes("access_token=")) {
+    token = hs.get("access_token") || "";
+    if (token) { sessionStorage.setItem("gcToken", token); log("info", "Implicit token received (" + token.slice(0, 8) + "…)"); }
+    history.replaceState(null, "", location.pathname + location.search);
+  }
+  // PKCE return: ?code=...
+  const code = qs.get("code");
+  if (code) {
+    log("info", "PKCE code received, exchanging for token…");
+    const verifier = sessionStorage.getItem("gcVerifier") || "";
+    try {
+      const r = await fetch(`https://login.${cfg.region}/oauth/token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "authorization_code",
+          code,
+          client_id: cfg.clientId,
+          redirect_uri: redirectUri(),
+          code_verifier: verifier
+        })
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.access_token) {
+        log("err", `Token exchange failed (${r.status}): ${JSON.stringify(d).slice(0, 300)}`);
+        setTimeout(() => msg("err", T.errGeneric + "Token exchange " + r.status + " · " + T.authHint, true), 0);
+      } else {
+        token = d.access_token;
+        sessionStorage.setItem("gcToken", token);
+        log("info", `PKCE token received (${token.slice(0, 8)}…), expires_in=${d.expires_in}s`);
+      }
+    } catch (e) {
+      log("err", "Token exchange error: " + e.message);
+      setTimeout(() => msg("err", T.errGeneric + e.message, true), 0);
+    }
+    history.replaceState(null, "", location.pathname);
+  }
+  const ctx = JSON.parse(sessionStorage.getItem("gcCtx") || "{}");
+  if (!conversationId && ctx.conversationId) conversationId = ctx.conversationId;
 }
 
 function logout() {
@@ -119,12 +213,14 @@ function logout() {
 }
 
 async function gc(path, opts = {}) {
+  log("info", `${(opts.method || "GET")} ${path}`);
   const r = await fetch(api(path), {
     ...opts,
     headers: { Authorization: "Bearer " + token, "Content-Type": "application/json", ...(opts.headers || {}) }
   });
-  if (r.status === 401) { token = ""; sessionStorage.removeItem("gcToken"); applyLang(); throw new Error(T.needAuth); }
-  if (!r.ok) throw new Error(`Genesys ${r.status}: ${(await r.text()).slice(0, 300)}`);
+  if (r.status === 401) { token = ""; sessionStorage.removeItem("gcToken"); applyLang(); log("err", `401 on ${path} — token expired`); throw new Error(T.needAuth); }
+  if (!r.ok) { const t = (await r.text()).slice(0, 300); log("err", `Genesys ${r.status} on ${path}: ${t}`); throw new Error(`Genesys ${r.status}: ${t}`); }
+  log("info", `← ${r.status} ${path}`);
   return r.status === 204 ? null : r.json();
 }
 
@@ -139,12 +235,15 @@ async function startLive(auto) {
     method: "PUT",
     body: JSON.stringify([{ id: `v2.conversations.${conversationId}.transcription` }])
   });
+  log("info", "Notification channel created: " + channelId);
   ws = new WebSocket(ch.connectUri);
+  ws.onopen = () => log("info", "WebSocket open — subscribed to v2.conversations." + conversationId + ".transcription");
   ws.onmessage = ev => {
     let d; try { d = JSON.parse(ev.data); } catch { return; }
     if (!d.topicName || !d.topicName.endsWith(".transcription")) return;
     const body = d.eventBody || {};
     if (body.status && body.status.status === "SESSION_ENDED") {
+      log("info", "SESSION_ENDED received — transcription session over");
       msg("info", T.liveEnded, true);
       stopLive(true);
       return;
@@ -159,7 +258,7 @@ async function startLive(auto) {
     });
     renderStream();
   };
-  ws.onclose = () => { if (liveActive) stopLive(true); };
+  ws.onclose = e => { log("warn", "WebSocket closed (code " + e.code + ")"); if (liveActive) stopLive(true); };
   liveActive = true;
   $("livePill").hidden = false; $("livePill").className = "pill live"; $("livePill").textContent = "LIVE";
   applyLang();
@@ -211,6 +310,7 @@ async function fetchTranscript() {
       fetchedPhrases.push({ who, offsetMs: ph.startTimeMs || 0, text: txt });
     }));
     renderStream();
+    log("info", `Transcript fetched: ${fetchedPhrases.length} phrases`);
     msg("info", `OK — ${fetchedPhrases.length} phrases.`);
   } catch (e) { msg("err", T.errGeneric + e.message, true); }
 }
@@ -230,7 +330,7 @@ function mmss(ms) {
 function renderStream() {
   const rows = currentTranscript();
   const el = $("stream");
-  if (!rows.length) { el.innerHTML = `<div class="empty">${T.empty}</div>`; return; }
+  if (!rows.length) { el.innerHTML = `<div class="empty" id="t-empty">${T.empty}</div>`; return; }
   el.innerHTML = rows.map(r =>
     `<div class="utt ${r.who}${r.isFinal === false ? " interim" : ""}">
        <div class="meta"><span>${r.who === "customer" ? T.customer : T.agent}</span><span>${mmss(r.offsetMs)}</span></div>
@@ -275,6 +375,8 @@ function providerAvailable(p) {
 
 async function callProvider(provider, prompt) {
   const t0 = performance.now();
+  const via = cfg.gcActionId ? "data-action" : cfg.proxyUrl ? "proxy" : "direct";
+  log("info", `AI call: ${provider} via ${via}, prompt ${prompt.length} chars`);
   const key = provider === "ollama" ? "" : cfg["key" + provider[0].toUpperCase() + provider.slice(1)];
   let out = "";
 
@@ -356,7 +458,9 @@ async function callProvider(provider, prompt) {
     if (!r.ok) throw new Error(d.error?.message || r.status);
     out = (d.content || []).filter(b => b.type === "text").map(b => b.text).join("\n");
   }
-  return { text: out.trim(), ms: Math.round(performance.now() - t0) };
+  const ms = Math.round(performance.now() - t0);
+  log("info", `AI response: ${provider}, ${out.length} chars, ${ms} ms`);
+  return { text: out.trim(), ms };
 }
 
 const PROVIDER_NAME = { openai: "OpenAI", gemini: "Gemini", claude: "Claude", ollama: "Ollama" };
@@ -419,6 +523,7 @@ async function copyText(text) {
 /* ---------------- settings form ---------------- */
 function loadForm() {
   $("region").value = cfg.region;
+  $("authType").value = cfg.authType;
   $("clientId").value = cfg.clientId;
   $("uiLang").value = cfg.uiLang;
   $("sumLang").value = cfg.sumLang;
@@ -436,6 +541,7 @@ function loadForm() {
 
 function saveForm() {
   cfg.region = $("region").value;
+  cfg.authType = $("authType").value;
   cfg.clientId = $("clientId").value.trim();
   cfg.uiLang = $("uiLang").value;
   cfg.sumLang = $("sumLang").value;
@@ -453,7 +559,7 @@ function saveForm() {
 }
 
 /* ---------------- init ---------------- */
-function init() {
+async function init() {
   // URL params from Genesys Interaction Widget interpolation:
   // ?conversationId={{gcConversationId}}&langTag={{gcLangTag}}
   const q = new URLSearchParams(location.search);
@@ -462,7 +568,8 @@ function init() {
   const lang = (q.get("langTag") || q.get("gcLangTag") || "").slice(0, 2).toLowerCase();
   if (lang && I18N[lang] && !localStorage.getItem(LS)) { cfg.uiLang = lang; cfg.sumLang = lang; }
 
-  handleAuthReturn();
+  log("info", `Widget start v1.4.0 · region=${cfg.region} · authType=${cfg.authType} · conversationId=${conversationId || "(none)"}`);
+  await handleAuthReturn();
   loadForm();
   applyLang();
   renderStream();
@@ -496,6 +603,14 @@ function init() {
   $("btnSave").addEventListener("click", () => { saveForm(); applyLang(); msg("info", T.saved); });
   $("uiLang").addEventListener("change", () => { cfg.uiLang = $("uiLang").value; applyLang(); renderStream(); });
   $("focusPoints").addEventListener("change", () => { cfg.focusPoints = $("focusPoints").value; localStorage.setItem(LS, JSON.stringify(cfg)); });
+  $("btnLogCopy").addEventListener("click", () => copyText(logAsText()));
+  $("btnLogClear").addEventListener("click", () => { LOGBUF.length = 0; renderLog(); });
+  $("btnLogSave").addEventListener("click", () => {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([logAsText()], { type: "text/plain" }));
+    a.download = "widget-log-" + new Date().toISOString().replace(/[:.]/g, "-") + ".txt";
+    a.click(); URL.revokeObjectURL(a.href);
+  });
   window.addEventListener("beforeunload", () => stopLive(true));
 }
 

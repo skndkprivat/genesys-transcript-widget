@@ -91,6 +91,12 @@
   .spin{display:inline-block; width:13px; height:13px; border:2px solid #fff; border-top-color:transparent; border-radius:50%; animation:rot .8s linear infinite; vertical-align:-2px; margin-right:6px}
   @keyframes rot{to{transform:rotate(360deg)}}
   @media (prefers-reduced-motion:reduce){.pill.live::before,.spin{animation:none}}
+  #logView{background:#101820;color:#D7E1EA;border-radius:var(--radius);padding:10px 12px;
+    font-family:var(--mono);font-size:11px;line-height:1.5;min-height:200px;max-height:60vh;overflow:auto}
+  .logrow{display:flex;gap:10px;white-space:pre-wrap;word-break:break-word}
+  .logrow.warn span:last-child{color:#F0B460}
+  .logrow.err span:last-child{color:#F08A9B}
+  .logts{color:#5F7285;flex:none}
   .footer-note{font-size:11px; color:var(--ink-soft); font-family:var(--mono); margin-top:16px; word-break:break-all}
 </style>
 </head>
@@ -104,6 +110,7 @@
   <button id="nav-transcript" class="active" data-tab="transcript">Transskription</button>
   <button id="nav-summary" data-tab="summary">Resumé</button>
   <button id="nav-settings" data-tab="settings">Opsætning</button>
+  <button id="nav-log" data-tab="log">Log</button>
 </nav>
 <main>
   <div id="msg" class="msgbar" role="status"></div>
@@ -147,6 +154,16 @@
     <div id="summaryOut" data-empty=""></div>
   </section>
 
+  <!-- LOG TAB -->
+  <section id="tab-log" class="tab">
+    <div class="row">
+      <button class="btn secondary" id="btnLogCopy"></button>
+      <button class="btn secondary" id="btnLogSave"></button>
+      <button class="btn secondary" id="btnLogClear"></button>
+    </div>
+    <div id="logView"></div>
+  </section>
+
   <!-- SETTINGS TAB -->
   <section id="tab-settings" class="tab">
     <fieldset>
@@ -161,6 +178,11 @@
         <option value="usw2.pure.cloud">US West (usw2.pure.cloud)</option>
         <option value="cac1.pure.cloud">Canada (cac1.pure.cloud)</option>
         <option value="aps1.pure.cloud">Asia Pacific (aps1.pure.cloud)</option>
+      </select>
+      <label id="t-lbl-grant" for="authType"></label>
+      <select id="authType">
+        <option value="pkce">Code Authorization / PKCE</option>
+        <option value="implicit">Token Implicit Grant (Browser)</option>
       </select>
       <label id="t-lbl-clientid" for="clientId"></label>
       <input type="text" id="clientId" autocomplete="off" spellcheck="false">
@@ -220,7 +242,7 @@
     </fieldset>
 
     <div class="row"><button class="btn" id="btnSave"></button></div>
-    <p class="footer-note" id="verNote">Genesys Transcript &amp; Summary Widget v1.0.0</p>
+    <p class="footer-note" id="verNote">Genesys Transcript &amp; Summary Widget v1.4.0</p>
   </section>
 </main>
 
@@ -232,8 +254,8 @@
         (requires Voice Transcription enabled; Low Latency = 3-5s delay)
      B) Fetch: GET /api/v2/speechandtextanalytics/conversations/{cid}/
         communications/{commId}/transcripturl
-   AI: OpenAI / Gemini / Claude via user-provided API keys (localStorage)
-   Auth: OAuth2 Implicit Grant (Token) — public client, no secret
+   AI: OpenAI / Gemini / Claude / Ollama via keys, proxy or Data Action
+   Auth: OAuth2 Code Authorization + PKCE (default) or Implicit Grant
    ============================================================ */
 
 /* ---------------- i18n ---------------- */
@@ -250,7 +272,7 @@ const I18N = {
     lblProvider:"AI-udbyder / resumésprog",
     summarize:"Generér resumé", copyS:"Kopiér resumé",
     sumEmpty:"Resuméet vises her, klar til at sætte ind i wrap-up-noter inden du trykker Done.",
-    legGenesys:"Genesys Cloud", lblRegion:"Region", lblClientId:"OAuth Client ID (Implicit Grant)",
+    legGenesys:"Genesys Cloud", lblRegion:"Region", lblClientId:"OAuth Client ID",
     lblConvId:"Conversation ID (udfyldes automatisk af widget-URL)",
     login:"Log ind", logout:"Log ud", save:"Gem opsætning",
     hintKeys:"Nøgler gemmes kun lokalt i denne browser (localStorage) og sendes direkte til den valgte AI-udbyder.",
@@ -279,6 +301,10 @@ const I18N = {
     hintOllama:"Kræver at Ollama kører med CORS åbnet for widget-domænet: sæt miljøvariablen OLLAMA_ORIGINS til widget-URL\u2019ens origin (eller *) og genstart Ollama.",
     lblAction:"Genesys Function Data Action ID (valgfri — vinder over proxy)",
     hintAction:"Er et Action ID sat, køres AI-kaldet som Function Data Action inde i Genesys Cloud. API-nøglerne ligger KUN i integrationens Credentials-tab — intet sendes fra browseren. Kræver permission integrations:action:execute.",
+    authHint:"Tjek at Grant Type-valget matcher OAuth-klienten i Genesys (PKCE eller Implicit), og at Authorized redirect URI matcher widget-URL\u2019en PRÆCIST.",
+    tabLog:"Log",
+    lblGrant:"OAuth Grant Type (skal matche klienten i Genesys)",
+    logSave:"Gem som fil",
     errGeneric:"Fejl: "
   },
   en:{
@@ -293,7 +319,7 @@ const I18N = {
     lblProvider:"AI provider / summary language",
     summarize:"Generate summary", copyS:"Copy summary",
     sumEmpty:"The summary appears here, ready to paste into your wrap-up notes before pressing Done.",
-    legGenesys:"Genesys Cloud", lblRegion:"Region", lblClientId:"OAuth Client ID (Implicit Grant)",
+    legGenesys:"Genesys Cloud", lblRegion:"Region", lblClientId:"OAuth Client ID",
     lblConvId:"Conversation ID (auto-filled by the widget URL)",
     login:"Log in", logout:"Log out", save:"Save settings",
     hintKeys:"Keys are stored locally in this browser only (localStorage) and sent directly to the chosen AI provider.",
@@ -322,6 +348,10 @@ const I18N = {
     hintOllama:"Requires Ollama running with CORS opened for the widget domain: set the OLLAMA_ORIGINS environment variable to the widget URL\u2019s origin (or *) and restart Ollama.",
     lblAction:"Genesys Function Data Action ID (optional — takes precedence over proxy)",
     hintAction:"If an Action ID is set, the AI call runs as a Function Data Action inside Genesys Cloud. API keys live ONLY in the integration\u2019s Credentials tab — nothing is sent from the browser. Requires the integrations:action:execute permission.",
+    authHint:"Check that the Grant Type selection matches the OAuth client in Genesys (PKCE or Implicit) and that the Authorized redirect URI matches the widget URL EXACTLY.",
+    tabLog:"Log",
+    lblGrant:"OAuth Grant Type (must match the client in Genesys)",
+    logSave:"Save as file",
     errGeneric:"Error: "
   },
   fr:{
@@ -336,7 +366,7 @@ const I18N = {
     lblProvider:"Fournisseur IA / langue du résumé",
     summarize:"Générer le résumé", copyS:"Copier le résumé",
     sumEmpty:"Le résumé s'affiche ici, prêt à être collé dans vos notes de wrap-up avant de cliquer sur Done.",
-    legGenesys:"Genesys Cloud", lblRegion:"Région", lblClientId:"OAuth Client ID (Implicit Grant)",
+    legGenesys:"Genesys Cloud", lblRegion:"Région", lblClientId:"OAuth Client ID",
     lblConvId:"Conversation ID (rempli automatiquement par l'URL du widget)",
     login:"Connexion", logout:"Déconnexion", save:"Enregistrer",
     hintKeys:"Les clés sont stockées uniquement dans ce navigateur (localStorage) et envoyées directement au fournisseur IA choisi.",
@@ -357,14 +387,18 @@ const I18N = {
     customer:"Client", agent:"Agent",
     liveAuto:"Transcription temps réel démarrée automatiquement.",
     lblProxy:"URL du proxy (optionnel)",
-    hintProxy:"Si une URL de proxy est définie, les appels IA passent par le proxy. Si le proxy possède sa propre clé API (côté serveur), c’est elle qui est utilisée — les clés ci-dessus sont ignorées et ne servent que de secours.",
-    lblAutoStart:"Démarrer automatiquement la transcription temps réel (aucune action de l’agent)",
+    hintProxy:"Si une URL de proxy est définie, les appels IA passent par le proxy. Si le proxy possède sa propre clé API (côté serveur), c\u2019est elle qui est utilisée — les clés ci-dessus sont ignorées et ne servent que de secours.",
+    lblAutoStart:"Démarrer automatiquement la transcription temps réel (aucune action de l\u2019agent)",
     compare:"Comparer les fournisseurs",
     comparing:"Comparaison…",
     lblOllama:"URL / modèle Ollama (local, gratuit, les données ne quittent pas la machine)",
     hintOllama:"Nécessite Ollama avec CORS ouvert pour le domaine du widget : définissez la variable d\u2019environnement OLLAMA_ORIGINS sur l\u2019origine de l\u2019URL du widget (ou *) et redémarrez Ollama.",
     lblAction:"ID de la Function Data Action Genesys (optionnel — prioritaire sur le proxy)",
     hintAction:"Si un Action ID est défini, l\u2019appel IA s\u2019exécute comme Function Data Action dans Genesys Cloud. Les clés API résident UNIQUEMENT dans l\u2019onglet Credentials de l\u2019intégration — rien n\u2019est envoyé depuis le navigateur. Nécessite la permission integrations:action:execute.",
+    authHint:"Vérifiez que le Grant Type sélectionné correspond au client OAuth dans Genesys (PKCE ou Implicit) et que l\u2019Authorized redirect URI correspond EXACTEMENT à l\u2019URL du widget.",
+    tabLog:"Journal",
+    lblGrant:"OAuth Grant Type (doit correspondre au client dans Genesys)",
+    logSave:"Enregistrer",
     errGeneric:"Erreur : "
   },
   de:{
@@ -379,7 +413,7 @@ const I18N = {
     lblProvider:"KI-Anbieter / Sprache der Zusammenfassung",
     summarize:"Zusammenfassung erstellen", copyS:"Zusammenfassung kopieren",
     sumEmpty:"Die Zusammenfassung erscheint hier — bereit zum Einfügen in die Wrap-up-Notizen, bevor Sie auf Done klicken.",
-    legGenesys:"Genesys Cloud", lblRegion:"Region", lblClientId:"OAuth Client ID (Implicit Grant)",
+    legGenesys:"Genesys Cloud", lblRegion:"Region", lblClientId:"OAuth Client ID",
     lblConvId:"Conversation ID (wird automatisch über die Widget-URL gefüllt)",
     login:"Anmelden", logout:"Abmelden", save:"Einstellungen speichern",
     hintKeys:"Schlüssel werden nur lokal in diesem Browser gespeichert (localStorage) und direkt an den gewählten KI-Anbieter gesendet.",
@@ -408,6 +442,10 @@ const I18N = {
     hintOllama:"Erfordert Ollama mit geöffnetem CORS für die Widget-Domain: Umgebungsvariable OLLAMA_ORIGINS auf den Origin der Widget-URL (oder *) setzen und Ollama neu starten.",
     lblAction:"Genesys Function Data Action ID (optional — hat Vorrang vor dem Proxy)",
     hintAction:"Ist eine Action ID gesetzt, läuft der KI-Aufruf als Function Data Action innerhalb von Genesys Cloud. Die API-Schlüssel liegen NUR im Credentials-Tab der Integration — nichts wird vom Browser gesendet. Erfordert die Permission integrations:action:execute.",
+    authHint:"Prüfen Sie, dass die Grant-Type-Auswahl dem OAuth-Client in Genesys entspricht (PKCE oder Implicit) und die Authorized redirect URI EXAKT der Widget-URL entspricht.",
+    tabLog:"Protokoll",
+    lblGrant:"OAuth Grant Type (muss dem Client in Genesys entsprechen)",
+    logSave:"Als Datei speichern",
     errGeneric:"Fehler: "
   }
 };
