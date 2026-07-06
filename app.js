@@ -589,7 +589,7 @@ async function init() {
   // URL params from Genesys Interaction Widget interpolation:
   // ?conversationId={{gcConversationId}}&langTag={{gcLangTag}}
   const q = new URLSearchParams(location.search);
-  const cid = q.get("conversationId") || q.get("gcConversationId") || "";
+  const cid = q.get("conversationId") || q.get("gcConversationId") || q.get("pcConversationId") || "";
   if (cid && !cid.includes("{{")) conversationId = cid;
   const lang = (q.get("langTag") || q.get("gcLangTag") || "").slice(0, 2).toLowerCase();
   if (lang && I18N[lang] && !localStorage.getItem(LS)) { cfg.uiLang = lang; cfg.sumLang = lang; }
