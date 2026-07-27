@@ -159,6 +159,7 @@
     <div class="row">
       <button class="btn secondary" id="btnLogCopy"></button>
       <button class="btn secondary" id="btnLogSave"></button>
+      <button class="btn secondary" id="btnLogPrev" hidden></button>
       <button class="btn secondary" id="btnLogClear"></button>
     </div>
     <div id="logView"></div>
@@ -242,7 +243,7 @@
     </fieldset>
 
     <div class="row"><button class="btn" id="btnSave"></button></div>
-    <p class="footer-note" id="verNote">Genesys Transcript &amp; Summary Widget v1.4.1</p>
+    <p class="footer-note" id="verNote">Genesys Transcript &amp; Summary Widget v1.4.3</p>
   </section>
 </main>
 
@@ -305,6 +306,7 @@ const I18N = {
     tabLog:"Log",
     lblGrant:"OAuth Grant Type (skal matche klienten i Genesys)",
     logSave:"Gem som fil",
+    logPrev:"Hent forrige log",
     ollamaCors:"Ollama kunne ikke nås fra browseren. Tjek: 1) kører Ollama? 2) er OLLAMA_ORIGINS sat til widget-origin (https://skndkprivat.github.io) eller *, og er Ollama genstartet bagefter? 3) er URL\u2019en korrekt?",
     errGeneric:"Fejl: "
   },
@@ -353,6 +355,7 @@ const I18N = {
     tabLog:"Log",
     lblGrant:"OAuth Grant Type (must match the client in Genesys)",
     logSave:"Save as file",
+    logPrev:"Download previous log",
     ollamaCors:"Ollama could not be reached from the browser. Check: 1) is Ollama running? 2) is OLLAMA_ORIGINS set to the widget origin (or *) and was Ollama restarted afterwards? 3) is the URL correct?",
     errGeneric:"Error: "
   },
@@ -401,6 +404,7 @@ const I18N = {
     tabLog:"Journal",
     lblGrant:"OAuth Grant Type (doit correspondre au client dans Genesys)",
     logSave:"Enregistrer",
+    logPrev:"Télécharger le journal précédent",
     ollamaCors:"Ollama est injoignable depuis le navigateur. Vérifiez : 1) Ollama est-il lancé ? 2) OLLAMA_ORIGINS est-il défini sur l\u2019origine du widget (ou *) avec redémarrage d\u2019Ollama ? 3) l\u2019URL est-elle correcte ?",
     errGeneric:"Erreur : "
   },
@@ -449,6 +453,7 @@ const I18N = {
     tabLog:"Protokoll",
     lblGrant:"OAuth Grant Type (muss dem Client in Genesys entsprechen)",
     logSave:"Als Datei speichern",
+    logPrev:"Vorheriges Protokoll herunterladen",
     ollamaCors:"Ollama ist vom Browser aus nicht erreichbar. Prüfen Sie: 1) Läuft Ollama? 2) Ist OLLAMA_ORIGINS auf den Widget-Origin (oder *) gesetzt und wurde Ollama danach neu gestartet? 3) Stimmt die URL?",
     errGeneric:"Fehler: "
   }

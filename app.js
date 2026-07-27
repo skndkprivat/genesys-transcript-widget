@@ -3,6 +3,7 @@
 
 /* ---------------- state & settings ---------------- */
 const LS = "gcTranscriptWidget";
+const LOGLS = "gcTranscriptWidgetLog";
 const defaults = {
   region: "mypurecloud.de",
   clientId: "",
@@ -30,6 +31,12 @@ let T = I18N[cfg.uiLang] || I18N.da;
 
 /* ---------------- system log ---------------- */
 const LOGBUF = [];
+/* Snapshot of the PREVIOUS session's log, captured once at load time —
+   before this session's own log() calls start overwriting localStorage.
+   Lets an agent recover what happened after the iframe was torn down
+   (interaction closed / ACW timeout) before "Gem log" was clicked. */
+let PREV_LOG = null;
+try { PREV_LOG = JSON.parse(localStorage.getItem(LOGLS) || "null"); } catch (e) { PREV_LOG = null; }
 function log(level, msg) {
   const ts = new Date().toISOString().substring(11, 23);
   LOGBUF.push({ ts, level, msg: String(msg) });
@@ -37,6 +44,16 @@ function log(level, msg) {
   const fn = level === "err" ? "error" : level === "warn" ? "warn" : "info";
   console[fn]("[widget " + ts + "]", msg);
   renderLog();
+  persistLog();
+}
+/* Mirrors LOGBUF to localStorage on every entry, so the log survives the
+   iframe being torn down before the agent had a chance to save it
+   manually. Overwrites the same key each time — only the latest
+   session's log is kept (capped at 500 lines, same as LOGBUF). */
+function persistLog() {
+  try {
+    localStorage.setItem(LOGLS, JSON.stringify({ savedAt: new Date().toISOString(), conversationId, entries: LOGBUF }));
+  } catch (e) { /* storage full/unavailable — in-memory log still works */ }
 }
 function renderLog() {
   const el = document.getElementById("logView");
@@ -81,6 +98,7 @@ function applyLang() {
   setTxt("nav-log", T.tabLog);
   setTxt("btnLogCopy", T.copyT);
   setTxt("btnLogSave", T.logSave);
+  setTxt("btnLogPrev", T.logPrev);
   setTxt("btnLogClear", T.clear);
   setTxt("t-lbl-convid", T.lblConvId);
   setTxt("btnLogin", T.login);
@@ -395,7 +413,10 @@ function providerAvailable(p) {
 async function callProvider(provider, prompt) {
   const t0 = performance.now();
   const via = cfg.gcActionId ? "data-action" : cfg.proxyUrl ? "proxy" : "direct";
-  log("info", `AI call: ${provider} via ${via}, prompt ${prompt.length} chars`);
+  const model = provider === "ollama"
+    ? (cfg.modelOllama || defaults.modelOllama)
+    : (cfg["model" + provider[0].toUpperCase() + provider.slice(1)] || defaults["model" + provider[0].toUpperCase() + provider.slice(1)]);
+  log("info", `AI call: ${provider} via ${via}, model ${model}, prompt ${prompt.length} chars`);
   const key = provider === "ollama" ? "" : cfg["key" + provider[0].toUpperCase() + provider.slice(1)];
   let out = "";
 
@@ -485,7 +506,7 @@ async function callProvider(provider, prompt) {
     out = (d.content || []).filter(b => b.type === "text").map(b => b.text).join("\n");
   }
   const ms = Math.round(performance.now() - t0);
-  log("info", `AI response: ${provider}, ${out.length} chars, ${ms} ms`);
+  log("info", `AI response: ${provider}, model ${model}, ${out.length} chars, ${ms} ms`);
   return { text: out.trim(), ms };
 }
 
@@ -592,11 +613,16 @@ async function init() {
   // ?conversationId={{gcConversationId}}&langTag={{gcLangTag}}
   const q = new URLSearchParams(location.search);
   const cid = q.get("conversationId") || q.get("gcConversationId") || q.get("pcConversationId") || "";
-  if (cid && !cid.includes("{{")) conversationId = cid;
+  // guard: accept only a real UUID — protects against misconfigured widget URLs
+  if (cid && !/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(cid)) {
+    setTimeout(() => log("warn", "Ignoring invalid conversationId from URL (not a UUID): " + cid.slice(0, 60)), 0);
+  } else if (cid) {
+    conversationId = cid;
+  }
   const lang = (q.get("langTag") || q.get("gcLangTag") || "").slice(0, 2).toLowerCase();
   if (lang && I18N[lang] && !localStorage.getItem(LS)) { cfg.uiLang = lang; cfg.sumLang = lang; }
 
-  log("info", `Widget start v1.4.1 · region=${cfg.region} · authType=${cfg.authType} · conversationId=${conversationId || "(none)"}`);
+  log("info", `Widget start v1.4.3 · region=${cfg.region} · authType=${cfg.authType} · conversationId=${conversationId || "(none)"}`);
   log("info", "URL query: " + (location.search || "(empty)"));
   await handleAuthReturn();
   loadForm();
@@ -642,11 +668,26 @@ async function init() {
   $("uiLang").addEventListener("change", () => { cfg.uiLang = $("uiLang").value; applyLang(); renderStream(); });
   $("focusPoints").addEventListener("change", () => { cfg.focusPoints = $("focusPoints").value; localStorage.setItem(LS, JSON.stringify(cfg)); });
   $("btnLogCopy").addEventListener("click", () => copyText(logAsText()));
-  $("btnLogClear").addEventListener("click", () => { LOGBUF.length = 0; renderLog(); });
+  $("btnLogClear").addEventListener("click", () => { LOGBUF.length = 0; renderLog(); persistLog(); });
   $("btnLogSave").addEventListener("click", () => {
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([logAsText()], { type: "text/plain" }));
     a.download = "widget-log-" + new Date().toISOString().replace(/[:.]/g, "-") + ".txt";
+    a.click(); URL.revokeObjectURL(a.href);
+  });
+  if (PREV_LOG && Array.isArray(PREV_LOG.entries) && PREV_LOG.entries.length) {
+    $("btnLogPrev").hidden = false;
+    log("info", `Gemt log fra forrige session fundet (${PREV_LOG.savedAt}, conversationId=${PREV_LOG.conversationId || "(ukendt)"}) — se "${T.logPrev}" i Log-fanen.`);
+  } else {
+    $("btnLogPrev").hidden = true;
+  }
+  $("btnLogPrev").addEventListener("click", () => {
+    if (!PREV_LOG) return;
+    const header = `Gemt: ${PREV_LOG.savedAt} \u00b7 conversationId: ${PREV_LOG.conversationId || "(ukendt)"}\n\n`;
+    const text = header + (PREV_LOG.entries || []).map(r => `${r.ts} [${r.level.toUpperCase()}] ${r.msg}`).join("\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
+    a.download = "widget-log-forrige-" + (PREV_LOG.savedAt || "").replace(/[:.]/g, "-") + ".txt";
     a.click(); URL.revokeObjectURL(a.href);
   });
   window.addEventListener("beforeunload", () => stopLive(true));

@@ -61,6 +61,41 @@ Admin → Integrations → **Add Integration** → *Interaction Widget*
 2. Settings → Pages → Deploy from branch → `main` / root.
 3. URL'en bruges i OAuth redirect og Interaction Widget-konfigurationen.
 
+## Sådan ser du hvilken model der bruges
+
+- Under fanen **Opsætning** har hver udbyder sit eget modelfelt (`modelOpenai`, `modelGemini`, `modelClaude`, `modelOllama`) — det er dét felt der reelt sendes med i AI-kaldet, uanset om kaldet går direkte, via proxy eller via Data Action.
+- Statuslinjen efter et resumé viser udbyder + svartid (fx `Claude · 2.3s`), men ikke selve modelnavnet.
+- **Log-fanen** er det bedste sted at se det: hvert AI-kald logges som `AI call: <provider> via <direct|proxy|data-action>, model <navn>, prompt N chars`, og svaret som `AI response: <provider>, model <navn>, N chars, N ms` — så du kan se både hvilken model der blev bedt om, og om den nåede at svare (v1.4.2+).
+- Ved **Sammenlign udbydere** vises resultaterne under overskrifter pr. udbyder + svartid; modellen er den, der stod i det pågældende felt på Opsætning-fanen på kaldetidspunktet.
+- Ved Data Action-kald sendes modelnavnet med i requesten (`${input.model}`) og kan verificeres i Genesys' egen Data Action-logning, hvis I vil se hvad der reelt blev modtaget server-side.
+
+## Fejlsøgning af transskriptions-læsning
+
+Brug altid **Log-fanen** først (knapper til at kopiere/gemme/rydde loggen) — den viser hele forløbet med tidsstempler, alle Genesys-kald (`${method} ${path}` / `← ${status} ${path}`) og WebSocket-status.
+
+**Realtid (WebSocket) virker ikke:**
+1. Tjek loggen for `Notification channel created` og `WebSocket open — subscribed to v2.conversations.<id>.transcription`. Mangler disse, er `conversationId` eller token forkert — tjek feltet på Opsætning-fanen.
+2. WebSocket åben, men ingen tekst → transskription er sandsynligvis ikke aktiveret på køen/flowet (Admin → Conversation Intelligence → Speech and Text Analytics → Settings → Voice Transcription).
+3. `401` i loggen → token udløbet, log ud/ind igen.
+4. WebSocket lukker med det samme (`WebSocket closed (code ...)`) → mangler permission `conversation:transcription:view`, eller samtalen kører på BYOC Premises (ikke understøttet til realtidstopic'et — kræver Cloud-baseret Edge).
+5. Høj latenstid (~35 sek. i stedet for 3-5 sek.) → **Low Latency Transcription** er ikke slået til i Settings.
+6. `SESSION_ENDED` ses for tidligt i loggen → samtalen er reelt afsluttet, eller `conversationId` peger på en allerede afsluttet session.
+
+**Hent-metoden (transcripturl) virker ikke:**
+1. Tom besked / ingen fraser fundet → `transcripturl` er endnu ikke klar (kan tage 1-2 min. efter kunden har lagt på) — prøv igen om lidt.
+2. `Genesys 403` i loggen → mangler `speechAndTextAnalytics:data:view` og/eller `recording:recording:view`.
+3. `Genesys 404` på `/transcripturl` for alle communication-id'er → Voice Transcription var ikke aktiveret på samtalen, eller det er den forkerte `conversationId`.
+
+## Se efterfølgende om AI-resuméet nåede at blive færdigt (fx ved ACW-timeout)
+
+Hvis wrap-up (ACW) har en timeout — fx 20 sek. — og agenten (eller Genesys) lukker interaktionen/widget'en før resuméet er færdigt, er billedet efterfølgende afhængigt af, hvilken vej AI-kaldet gik:
+
+- **Log-fanen alene rækker ikke** — `LOGBUF` ligger i browserens hukommelse for den aktuelle widget-instans, men fra og med **v1.4.3** spejles hver logline også løbende til `localStorage` (nøgle `gcTranscriptWidgetLog`), så den overlever at iframen lukkes/genindlæses (interaktionen afsluttes, ACW-timeout udløber, agenten klikker Done). Næste gang widget'en åbnes (i samme browser), vises knappen **"Hent forrige log"** i Log-fanen automatisk, hvis der er en gemt session — den downloader forrige samtales fulde log som tekstfil, inkl. tidsstempel og conversationId.
+- Kig efter parret `AI call: ... model X ...` / `AI response: ... model X, N ms`. Mangler `AI response`-linjen efter et `AI call`, nåede kaldet ikke at svare, før loggen blev afbrudt eller widget'en lukket — dvs. et reelt timeout/afbrud.
+- **Data Action-vejen har derudover et serverside-spor**: Genesys logger selv eksekveringen af integrationens Data Action (Admin → Integrations → Actions → den pågældende action, evt. via Audit Viewer) — den logning overlever uanset browser/iframe og er den mest robuste kilde, hvis I skal dokumentere timeouts systematisk på tværs af flere agenter/maskiner.
+- **Direkte og proxy-vejen** har intet centralt spor — kun den lokale `localStorage`-log (én maskine ad gangen) eller evt. AI-udbyderens/Cloudflare Workerens egne logs.
+- **OBS — privatliv/delte maskiner**: `localStorage` gemmer kun én session ad gangen (overskrives ved hver ny), men den ligger på tværs af alle samtaler på samme browser/maskine, indtil den overskrives eller ryddes ("Ryd"-knappen i Log-fanen rydder også den gemte kopi). På delte agent-maskiner bør I være opmærksomme på, at forrige agents logline (inkl. transskript-uddrag i loggen) potentielt kan hentes af den næste, der åbner widget'en.
+
 ## Kendte begrænsninger
 - `transcripturl` kan først levere data et stykke tid efter samtalens afslutning — brug realtid, hvis resuméet skal være klar øjeblikkeligt.
 - Realtidstransskripter kommer i batches; med Low Latency ca. 3-5 sek. forsinkelse.
@@ -138,3 +173,9 @@ Opsætning:
 
 ### v1.3.1 — MCP-afgrænsning i systembeskrivelsen
 Nyt afsnit 8 + Fig. 5 i `SYSTEM.html`: forskellen på Genesys' native MCP (Copilot/Virtual Agent som MCP-klient — handlinger UD af platformen, ingen transskript-adgang) og community MCP-servere (wrapper Platform API'et, transcript via samme transcripturl-endpoint — til supervisor/QM-analyse i Claude Desktop/Cowork, ikke til agent-widget'en). Inkl. scenarietabel: widget vs. MCP-server vs. native MCP/Copilot.
+
+### v1.4.2 — Modelnavn i loggen
+`AI call`/`AI response`-loglinjerne i Log-fanen viser nu også hvilken model der reelt blev brugt (`modelOpenai`/`modelGemini`/`modelClaude`/`modelOllama` fra Opsætning), ikke kun udbyderen.
+
+### v1.4.3 — Log-persistens i localStorage
+Hele loggen spejles nu løbende til `localStorage` (nøgle `gcTranscriptWidgetLog`, overskrives pr. session) og overlever dermed at iframen lukkes uden at agenten når at klikke "Gem log" — fx ved en ACW-timeout, mens AI-resuméet stadig kører. Log-fanen viser automatisk en knap **"Hent forrige log"**, hvis der findes en gemt session fra sidste gang widget'en kørte i samme browser; den downloader den fulde forrige log som tekstfil. "Ryd"-knappen rydder både den aktuelle visning og den gemte kopi. Se afsnittet "Se efterfølgende om AI-resuméet nåede at blive færdigt" ovenfor for brug og begrænsninger (kun seneste session, delt maskine = delt log).
