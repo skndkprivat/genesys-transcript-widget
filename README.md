@@ -203,3 +203,11 @@ Ny indstilling: **"Generér resumé automatisk og indsæt i wrap-up notes, når 
 **Vigtig begrænsning:** virker kun hvis AI-kaldet når at blive færdigt, før agenten trykker Done / widget-iframen bliver lukket af Genesys — browseren afbryder alt JavaScript i samme øjeblik iframen fjernes fra DOM'en, så der findes ikke en måde at "holde processen kørende" bagefter. En 100%-garanti, uanset hvor sent agenten er færdig, kræver et **server-side flow** uafhængigt af agentens browser (fx et Architect-flow/webhook, der selv henter transskriptionen og skriver resuméet — en større arkitekturudvidelse, ikke bygget endnu).
 
 Andre forbehold: bruger agentens eget token/permissions (samme som når agenten selv indsender wrap-up manuelt); nogle køer kan være konfigureret til at kræve en wrapup-kode for at acceptere notes — tjek Log-fanen for statuskoden, hvis skrivningen fejler.
+
+### v1.5.3 — Fil-log (debug mode)
+Ny funktion i Log-fanen: **"Start fil-log"**. Skriver hver logline direkte til en fil på din pc via browserens File System Access API, i samme sekund den sker (åbn, skriv, luk på hver linje — ikke bufferet), så selv hvis widget'ens iframe bliver lukket midt i en AI-generering, ligger alt det, der nåede at ske, allerede på disken. Løser problemet fra localStorage-løsningen i v1.4.3: den krævede stadig at åbne widget'en igen og klikke "Hent forrige log" — fil-loggen ligger der bare, klar til at åbne direkte i en teksteditor.
+
+- Første gang: ét klik for at vælge/oprette filen (browsersikkerhed kræver en bruger-gestus).
+- Herefter gemmes filhandle'en i IndexedDB, så næste samtale (nyt sideload) forsøger at genoptage automatisk uden nyt klik — lykkes det ikke (browseren beder om fornyet tilladelse), vises knappen **"Genaktiver fil-log"**.
+- **Kun Chrome/Edge** — API'et findes ikke i Firefox/Safari; knappen skjules og der vises en besked i stedet.
+- **Uverificeret i selve Genesys-widget-iframen**: Genesys' egen indlejring kan i teorien blokere File System Access API via sin permissions-policy. Test det i en rigtig Interaction Widget, før I stoler på det — hvis det ikke virker der, er `localStorage`-løsningen ("Hent forrige log") stadig fallback.

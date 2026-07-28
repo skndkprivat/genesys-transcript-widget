@@ -169,6 +169,13 @@
       <button class="btn secondary" id="btnLogPrev" hidden></button>
       <button class="btn secondary" id="btnLogClear"></button>
     </div>
+    <div class="row">
+      <button class="btn secondary" id="btnDebugStart"></button>
+      <button class="btn secondary" id="btnDebugStop" hidden></button>
+      <button class="btn secondary" id="btnDebugResume" hidden></button>
+    </div>
+    <p class="hint" id="debugFileStatus"></p>
+    <p class="hint" id="t-hint-debugfile"></p>
     <div id="logView"></div>
   </section>
 
@@ -207,6 +214,11 @@
         <label id="t-lbl-autowrapup" for="autoWrapup" style="margin:0; font-weight:600"></label>
       </div>
       <p class="hint" id="t-hint-autowrapup"></p>
+      <label id="t-lbl-autowrapupcode" for="autoWrapupCode"></label>
+      <div class="keyrow">
+        <input type="text" id="autoWrapupCode" autocomplete="off" spellcheck="false" placeholder="fx 3f2a1c9e-....">
+        <button class="btn secondary" id="btnListWrapupCodes" style="flex:none"></button>
+      </div>
       <div class="row" style="margin-top:10px">
         <button class="btn" id="btnLogin"></button>
         <button class="btn secondary" id="btnLogout"></button>
@@ -269,7 +281,7 @@
     </fieldset>
 
     <div class="row"><button class="btn" id="btnSave"></button></div>
-    <p class="footer-note" id="verNote">Genesys Transcript &amp; Summary Widget v1.5.2</p>
+    <p class="footer-note" id="verNote">Genesys Transcript &amp; Summary Widget v1.5.4</p>
   </section>
 </main>
 
@@ -324,6 +336,8 @@ const I18N = {
     lblAutoStart:"Start realtidstransskription automatisk (agenten skal intet gøre)",
     lblAutoWrapup:"Generér resumé automatisk og indsæt i wrap-up notes, når samtalen slutter",
     hintAutoWrapup:"Starter AI-resuméet i samme sekund samtalen slutter (før Done klikkes) og skriver det direkte i Genesys' egne wrap-up notes via API, når det er færdigt. Virker kun hvis kaldet når at blive færdigt før agenten trykker Done — overlever ikke at widget'en reelt lukkes. Skriver direkte i den rigtige samtales wrap-up-data.",
+    lblAutoWrapupCode:"Wrap-up kode ID til automatisk indsættelse (kræves af nogle køer ved siden af notes)",
+    listWrapupCodes:"Vis kode-liste i log",
     legTranscript:"Transskription (Hent)",
     lblWhisper:"Lokal Whisper-server URL (valgfri — alternativ til Genesys' egen transskription ved Hent)",
     hintWhisper:"Er en URL sat, downloader widget'en optagelsen fra Genesys og sender den til din lokale whisper.cpp-server i stedet for at bruge Genesys' transcripturl. Kræver recording:recording:view samt CORS åbnet på din whisper-server for widget-domænet.",
@@ -339,7 +353,14 @@ const I18N = {
     lblGrant:"OAuth Grant Type (skal matche klienten i Genesys)",
     logSave:"Gem som fil",
     logPrev:"Hent forrige log",
+    debugStart:"Start fil-log",
+    debugStop:"Stop fil-log",
+    debugResume:"Genaktiver fil-log",
+    debugActive:"Fil-log aktiv",
+    debugUnsupported:"Fil-log understøttes ikke i denne browser (kræver Chrome eller Edge).",
+    hintDebugFile:"Skriver hver logline direkte til en fil på din pc, i samme sekund den sker — så selv hvis widget'en lukkes midt i en generering, ligger det, der nåede at ske, allerede på disken. Første gang skal du vælge/oprette filen (ét klik); herefter genoptages fil-loggen automatisk ved næste samtale, så længe browseren stadig tillader det. Kun Chrome/Edge — og kan være blokeret af Genesys' egen widget-indlejring; test det før I stoler på det.",
     ollamaCors:"Ollama kunne ikke nås fra browseren. Tjek: 1) kører Ollama? 2) er OLLAMA_ORIGINS sat til widget-origin (https://skndkprivat.github.io) eller *, og er Ollama genstartet bagefter? 3) er URL\u2019en korrekt?",
+    alreadyGenerating:"Der kører allerede en resumé-generering (måske automatisk) — vent til den er færdig.",
     errGeneric:"Fejl: "
   },
   en:{
@@ -379,6 +400,8 @@ const I18N = {
     lblAutoStart:"Start realtime transcription automatically (no agent action needed)",
     lblAutoWrapup:"Auto-generate summary and insert into wrap-up notes when the call ends",
     hintAutoWrapup:"Starts the AI summary the instant the call ends (before Done is clicked) and writes it straight into Genesys' own wrap-up notes via API once done. Only works if the call finishes before the agent clicks Done — does not survive the widget actually being closed. Writes directly into the real conversation's wrap-up data.",
+    lblAutoWrapupCode:"Wrap-up code ID for auto-insert (required by some queues alongside notes)",
+    listWrapupCodes:"Show code list in log",
     legTranscript:"Transcript (Fetch)",
     lblWhisper:"Local Whisper server URL (optional — alternative to Genesys' own Fetch transcript)",
     hintWhisper:"If a URL is set, the widget downloads the recording from Genesys and sends it to your local whisper.cpp server instead of using Genesys' transcripturl. Requires recording:recording:view and CORS opened on your Whisper server for the widget domain.",
@@ -394,7 +417,14 @@ const I18N = {
     lblGrant:"OAuth Grant Type (must match the client in Genesys)",
     logSave:"Save as file",
     logPrev:"Download previous log",
+    debugStart:"Start file log",
+    debugStop:"Stop file log",
+    debugResume:"Resume file log",
+    debugActive:"File log active",
+    debugUnsupported:"File log is not supported in this browser (requires Chrome or Edge).",
+    hintDebugFile:"Writes every log line straight to a file on your PC, the instant it happens — so even if the widget is closed mid-generation, whatever happened is already on disk. First time, you pick/create the file (one click); after that, the file log resumes automatically on the next call, as long as the browser still grants permission. Chrome/Edge only — and may be blocked by Genesys' own widget embedding; test it before relying on it.",
     ollamaCors:"Ollama could not be reached from the browser. Check: 1) is Ollama running? 2) is OLLAMA_ORIGINS set to the widget origin (or *) and was Ollama restarted afterwards? 3) is the URL correct?",
+    alreadyGenerating:"A summary generation is already running (maybe automatic) — wait for it to finish.",
     errGeneric:"Error: "
   },
   fr:{
@@ -434,6 +464,8 @@ const I18N = {
     lblAutoStart:"Démarrer automatiquement la transcription temps réel (aucune action de l\u2019agent)",
     lblAutoWrapup:"Générer le résumé automatiquement et l'insérer dans les notes de wrap-up à la fin de l'appel",
     hintAutoWrapup:"Démarre le résumé IA dès la fin de l'appel (avant de cliquer sur Done) et l'écrit directement dans les notes de wrap-up de Genesys via l'API une fois terminé. Ne fonctionne que si l'appel se termine avant que l'agent clique sur Done — ne survit pas à la fermeture réelle du widget. Écrit directement dans les données de wrap-up de la vraie conversation.",
+    lblAutoWrapupCode:"ID du code de wrap-up pour l'insertion automatique (requis par certaines files en plus des notes)",
+    listWrapupCodes:"Afficher la liste des codes dans le journal",
     legTranscript:"Transcription (Récupérer)",
     lblWhisper:"URL du serveur Whisper local (optionnel — alternative à la transcription de Genesys)",
     hintWhisper:"Si une URL est définie, le widget télécharge l'enregistrement depuis Genesys et l'envoie à votre serveur whisper.cpp local au lieu d'utiliser le transcripturl de Genesys. Nécessite recording:recording:view et CORS ouvert sur votre serveur Whisper pour le domaine du widget.",
@@ -449,7 +481,14 @@ const I18N = {
     lblGrant:"OAuth Grant Type (doit correspondre au client dans Genesys)",
     logSave:"Enregistrer",
     logPrev:"Télécharger le journal précédent",
+    debugStart:"Démarrer le journal fichier",
+    debugStop:"Arrêter le journal fichier",
+    debugResume:"Reprendre le journal fichier",
+    debugActive:"Journal fichier actif",
+    debugUnsupported:"Le journal fichier n'est pas pris en charge dans ce navigateur (nécessite Chrome ou Edge).",
+    hintDebugFile:"Écrit chaque ligne de journal directement dans un fichier sur votre PC, à l'instant où elle se produit — donc même si le widget est fermé en pleine génération, ce qui s'est passé est déjà sur le disque. La première fois, vous choisissez/créez le fichier (un clic) ; ensuite, le journal fichier reprend automatiquement au prochain appel, tant que le navigateur accorde toujours la permission. Chrome/Edge uniquement — et peut être bloqué par l'intégration du widget de Genesys ; testez-le avant de vous y fier.",
     ollamaCors:"Ollama est injoignable depuis le navigateur. Vérifiez : 1) Ollama est-il lancé ? 2) OLLAMA_ORIGINS est-il défini sur l\u2019origine du widget (ou *) avec redémarrage d\u2019Ollama ? 3) l\u2019URL est-elle correcte ?",
+    alreadyGenerating:"Une génération de résumé est déjà en cours (peut-être automatique) — attendez qu'elle se termine.",
     errGeneric:"Erreur : "
   },
   de:{
@@ -489,6 +528,8 @@ const I18N = {
     lblAutoStart:"Echtzeit-Transkription automatisch starten (keine Aktion des Agenten nötig)",
     lblAutoWrapup:"Zusammenfassung automatisch erstellen und in die Wrap-up-Notizen einfügen, wenn das Gespräch endet",
     hintAutoWrapup:"Startet die KI-Zusammenfassung in dem Moment, in dem das Gespräch endet (vor dem Klick auf Done), und schreibt sie nach Fertigstellung direkt über die API in Genesys' eigene Wrap-up-Notizen. Funktioniert nur, wenn der Aufruf fertig wird, bevor der Agent auf Done klickt — überlebt nicht das tatsächliche Schließen des Widgets. Schreibt direkt in die Wrap-up-Daten der echten Konversation.",
+    lblAutoWrapupCode:"Wrap-up-Code-ID für automatisches Einfügen (von manchen Warteschlangen zusätzlich zu Notizen benötigt)",
+    listWrapupCodes:"Code-Liste im Protokoll anzeigen",
     legTranscript:"Transkript (Abrufen)",
     lblWhisper:"Lokale Whisper-Server-URL (optional — Alternative zur eigenen Transkription von Genesys)",
     hintWhisper:"Ist eine URL gesetzt, lädt das Widget die Aufzeichnung von Genesys herunter und sendet sie an Ihren lokalen whisper.cpp-Server anstatt Genesys' transcripturl zu verwenden. Erfordert recording:recording:view sowie geöffnetes CORS auf Ihrem Whisper-Server für die Widget-Domain.",
@@ -504,7 +545,14 @@ const I18N = {
     lblGrant:"OAuth Grant Type (muss dem Client in Genesys entsprechen)",
     logSave:"Als Datei speichern",
     logPrev:"Vorheriges Protokoll herunterladen",
+    debugStart:"Datei-Protokoll starten",
+    debugStop:"Datei-Protokoll stoppen",
+    debugResume:"Datei-Protokoll fortsetzen",
+    debugActive:"Datei-Protokoll aktiv",
+    debugUnsupported:"Datei-Protokoll wird in diesem Browser nicht unterstützt (erfordert Chrome oder Edge).",
+    hintDebugFile:"Schreibt jede Protokollzeile sofort in eine Datei auf Ihrem PC, in dem Moment, in dem sie passiert — selbst wenn das Widget mitten in einer Generierung geschlossen wird, ist das Geschehene bereits auf der Festplatte. Beim ersten Mal wählen/erstellen Sie die Datei (ein Klick); danach wird das Datei-Protokoll beim nächsten Anruf automatisch fortgesetzt, solange der Browser die Berechtigung weiterhin gewährt. Nur Chrome/Edge — und kann durch Genesys' eigene Widget-Einbettung blockiert werden; testen Sie es, bevor Sie sich darauf verlassen.",
     ollamaCors:"Ollama ist vom Browser aus nicht erreichbar. Prüfen Sie: 1) Läuft Ollama? 2) Ist OLLAMA_ORIGINS auf den Widget-Origin (oder *) gesetzt und wurde Ollama danach neu gestartet? 3) Stimmt die URL?",
+    alreadyGenerating:"Es läuft bereits eine Zusammenfassungs-Generierung (möglicherweise automatisch) — bitte warten, bis sie fertig ist.",
     errGeneric:"Fehler: "
   }
 };

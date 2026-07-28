@@ -19,6 +19,7 @@ const defaults = {
   gcActionId: "",
   autoStart: true,
   autoWrapup: false,
+  autoWrapupCode: "",
   authType: "pkce",
   focusPoints: ""
 };
@@ -31,6 +32,7 @@ let utterances = new Map();   // utteranceId -> {who, offsetMs, text, isFinal}
 let fetchedPhrases = [];      // from transcripturl: [{who, offsetMs, text}]
 let T = I18N[cfg.uiLang] || I18N.da;
 let lastSummaryText = ""; // plain text mirror of #summaryOut, for the Copy button (HTML is rendered markdown)
+let summarizing = false; // guards against manual + auto-wrapup firing concurrently (same transcript, duplicate AI call)
 
 /* ---------------- system log ---------------- */
 const LOGBUF = [];
@@ -48,6 +50,7 @@ function log(level, msg) {
   console[fn]("[widget " + ts + "]", msg);
   renderLog();
   persistLog();
+  debugLogAppend(`${ts} [${level.toUpperCase()}] ${String(msg)}`);
 }
 /* Mirrors LOGBUF to localStorage on every entry, so the log survives the
    iframe being torn down before the agent had a chance to save it
@@ -68,6 +71,112 @@ function renderLog() {
 }
 function logAsText() {
   return LOGBUF.map(r => `${r.ts} [${r.level.toUpperCase()}] ${r.msg}`).join("\n");
+}
+
+/* ---------------- debug mode: continuous file log (File System Access API) ----------------
+   Chrome/Edge only. Writes+closes the file on EVERY log line (not buffered),
+   so whatever happened is already on disk even if the iframe is torn down
+   mid-call — unlike the in-memory LOGBUF or the localStorage mirror, which
+   both die with the page. Requires one user click to grant file access;
+   the handle is then cached in IndexedDB so a later reload (next call) can
+   silently resume writing to the SAME file, if the browser still grants
+   permission without re-prompting. May not work at all inside the Genesys
+   widget iframe, depending on Genesys' embedding permissions-policy —
+   untested against a live Interaction Widget frame. */
+let debugFileHandle = null;
+let debugWriteQueue = Promise.resolve();
+const DEBUG_DB = "gcTranscriptWidgetDebug";
+function idbOpen() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DEBUG_DB, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore("handles");
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function idbSetHandle(handle) {
+  const db = await idbOpen();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("handles", "readwrite");
+    tx.objectStore("handles").put(handle, "debugLogFile");
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+async function idbGetHandle() {
+  const db = await idbOpen();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("handles", "readonly");
+    const req = tx.objectStore("handles").get("debugLogFile");
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  });
+}
+function renderDebugStatus() {
+  setTxt("debugFileStatus", debugFileHandle ? (T.debugActive + ": " + debugFileHandle.name) : "");
+  if ($("btnDebugStart")) $("btnDebugStart").hidden = !!debugFileHandle;
+  if ($("btnDebugStop")) $("btnDebugStop").hidden = !debugFileHandle;
+}
+function debugLogAppend(line) {
+  if (!debugFileHandle) return;
+  debugWriteQueue = debugWriteQueue.then(async () => {
+    try {
+      const file = await debugFileHandle.getFile();
+      const writable = await debugFileHandle.createWritable({ keepExistingData: true });
+      await writable.write({ type: "write", position: file.size, data: line + "\n" });
+      await writable.close();
+    } catch (e) { console.error("Debug file-log write failed", e); }
+  });
+  return debugWriteQueue;
+}
+async function startDebugFileLog() {
+  if (!("showSaveFilePicker" in window)) { msg("warn", T.debugUnsupported); return; }
+  try {
+    const handle = await window.showSaveFilePicker({
+      suggestedName: "widget-debug-" + new Date().toISOString().slice(0, 10) + ".log",
+      types: [{ description: "Log file", accept: { "text/plain": [".log", ".txt"] } }]
+    });
+    debugFileHandle = handle;
+    idbSetHandle(handle).catch(() => {});
+    renderDebugStatus();
+    log("info", "Fil-log startet: " + handle.name);
+  } catch (e) {
+    if (e.name !== "AbortError") { log("err", "Kunne ikke starte fil-log: " + e.message); msg("err", T.errGeneric + e.message, true); }
+  }
+}
+function stopDebugFileLog() {
+  const name = debugFileHandle && debugFileHandle.name;
+  debugFileHandle = null;
+  renderDebugStatus();
+  if (name) log("info", "Fil-log stoppet: " + name);
+}
+async function tryResumeDebugFileLog() {
+  if (!("showSaveFilePicker" in window)) { setTxt("debugFileStatus", T.debugUnsupported); if ($("btnDebugStart")) $("btnDebugStart").hidden = true; return; }
+  try {
+    const handle = await idbGetHandle();
+    if (!handle) return;
+    const perm = await handle.queryPermission({ mode: "readwrite" });
+    if (perm === "granted") {
+      debugFileHandle = handle;
+      renderDebugStatus();
+      log("info", "Fil-log genoptaget automatisk: " + handle.name);
+    } else if ($("btnDebugResume")) {
+      $("btnDebugResume").hidden = false;
+    }
+  } catch (e) { /* no stored handle, or API restricted in this iframe context — ignore */ }
+}
+async function resumeDebugFileLogManual() {
+  try {
+    const handle = await idbGetHandle();
+    if (!handle) return;
+    const perm = await handle.requestPermission({ mode: "readwrite" });
+    if (perm === "granted") {
+      debugFileHandle = handle;
+      renderDebugStatus();
+      if ($("btnDebugResume")) $("btnDebugResume").hidden = true;
+      log("info", "Fil-log genaktiveret: " + handle.name);
+    }
+  } catch (e) { log("err", "Kunne ikke genaktivere fil-log: " + e.message); }
 }
 
 const $ = id => document.getElementById(id);
@@ -102,6 +211,11 @@ function applyLang() {
   setTxt("btnLogCopy", T.copyT);
   setTxt("btnLogSave", T.logSave);
   setTxt("btnLogPrev", T.logPrev);
+  setTxt("btnDebugStart", T.debugStart);
+  setTxt("btnDebugStop", T.debugStop);
+  setTxt("btnDebugResume", T.debugResume);
+  setTxt("t-hint-debugfile", T.hintDebugFile);
+  renderDebugStatus();
   setTxt("btnLogClear", T.clear);
   setTxt("t-lbl-convid", T.lblConvId);
   setTxt("btnLogin", T.login);
@@ -115,6 +229,8 @@ function applyLang() {
   setTxt("t-lbl-autostart", T.lblAutoStart);
   setTxt("t-lbl-autowrapup", T.lblAutoWrapup);
   setTxt("t-hint-autowrapup", T.hintAutoWrapup);
+  setTxt("t-lbl-autowrapupcode", T.lblAutoWrapupCode);
+  setTxt("btnListWrapupCodes", T.listWrapupCodes);
   setTxt("t-lbl-ollama", T.lblOllama);
   setTxt("t-leg-transcript", T.legTranscript);
   setTxt("t-lbl-whisper", T.lblWhisper);
@@ -610,9 +726,12 @@ async function summarize() {
   if (!transcript) { msg("warn", T.noTranscript); return; }
   const provider = $("provider").value;
   if (!providerAvailable(provider)) { msg("warn", T.needKey); return; }
+  if (summarizing) { msg("warn", T.alreadyGenerating, true); return; }
+  summarizing = true;
   const btn = $("btnSummarize");
   btn.disabled = true;
   btn.innerHTML = `<span class="spin"></span>${T.summarizing}`;
+  $("btnCompare").disabled = true;
   setTxt("t-sum-timing", "");
   try {
     const res = await callProvider(provider, buildPrompt(transcript));
@@ -625,8 +744,10 @@ async function summarize() {
     log("err", `AI error (${provider}): ${e.message}`);
     msg("err", T.errGeneric + e.message, true);
   } finally {
+    summarizing = false;
     btn.disabled = false;
     btn.textContent = T.summarize;
+    $("btnCompare").disabled = false;
   }
 }
 
@@ -637,9 +758,12 @@ async function compareProviders() {
   if (!transcript) { msg("warn", T.noTranscript); return; }
   const provs = ["openai", "gemini", "claude", "ollama"].filter(providerAvailable);
   if (!provs.length) { msg("warn", T.needKey); return; }
+  if (summarizing) { msg("warn", T.alreadyGenerating, true); return; }
+  summarizing = true;
   const btn = $("btnCompare");
   btn.disabled = true;
   btn.innerHTML = `<span class="spin"></span>${T.comparing}`;
+  $("btnSummarize").disabled = true;
   const prompt = buildPrompt(transcript);
   const outEl = $("summaryOut");
   outEl.textContent = "";
@@ -655,8 +779,10 @@ async function compareProviders() {
     return head + body;
   }).join("");
   setTxt("t-sum-timing", "");
+  summarizing = false;
   btn.disabled = false;
   btn.textContent = T.compare;
+  $("btnSummarize").disabled = false;
 }
 
 /* ---------------- auto summary + auto wrap-up (opt-in) ----------------
@@ -669,10 +795,16 @@ async function compareProviders() {
    NOT survive the widget actually being closed — that requires a
    server-side flow independent of the browser (see README). */
 async function autoSummarizeAndWrapup() {
+  if (summarizing) { log("warn", "Auto-resumé: der kører allerede en generering — springer over for at undgå en dublet."); return; }
   const transcript = transcriptAsText();
   if (!transcript) { log("warn", "Auto-resumé: intet transskript endnu, springer over."); return; }
   const provider = ($("provider") && $("provider").value) || cfg.provider;
   if (!providerAvailable(provider)) { log("warn", "Auto-resumé: ingen AI-udbyder konfigureret, springer over."); return; }
+  summarizing = true;
+  const btn = $("btnSummarize");
+  btn.disabled = true;
+  btn.innerHTML = `<span class="spin"></span>${T.summarizing} (auto)`;
+  $("btnCompare").disabled = true;
   const convIdAtStart = conversationId;
   log("info", "Auto-resumé startet ved SESSION_ENDED (afventer ikke agentens klik)…");
   try {
@@ -689,6 +821,11 @@ async function autoSummarizeAndWrapup() {
     await writeWrapupNotes(convIdAtStart, res.text);
   } catch (e) {
     log("err", "Auto-resumé fejlede: " + e.message);
+  } finally {
+    summarizing = false;
+    btn.disabled = false;
+    btn.textContent = T.summarize;
+    $("btnCompare").disabled = false;
   }
 }
 
@@ -698,15 +835,31 @@ async function writeWrapupNotes(convId, text) {
     const conv = await gc(`/api/v2/conversations/${convId}`);
     const me = (conv.participants || []).find(p => p.purpose === "agent");
     if (!me) { log("warn", "Auto-resumé: fandt ingen agent-deltager at skrive wrap-up på."); return; }
+    const wrapup = { notes: text };
+    if (cfg.autoWrapupCode) wrapup.code = cfg.autoWrapupCode;
     await gc(`/api/v2/conversations/calls/${convId}/participants/${me.id}`, {
       method: "PATCH",
-      body: JSON.stringify({ wrapup: { notes: text } })
+      body: JSON.stringify({ wrapup })
     });
     log("info", "Resumé skrevet til wrap-up notes automatisk.");
     msg("info", "Resumé indsat automatisk i wrap-up.");
   } catch (e) {
-    log("err", "Kunne ikke skrive wrap-up notes: " + e.message + " — nogle køer kræver muligvis også en wrapup-kode for at acceptere notes; tjek Log-fanen for statuskoden.");
+    const needsCode = /wrapup\s*code.*required/i.test(e.message);
+    log("err", "Kunne ikke skrive wrap-up notes: " + e.message +
+      (needsCode
+        ? " — jeres kø kræver en wrapup-kode ved siden af notes. Udfyld \"Wrap-up kode ID\" under Opsætning (brug \"Vis kode-liste i log\" for at finde ID'et)."
+        : " — tjek Log-fanen for statuskoden."));
   }
+}
+
+async function listWrapupCodes() {
+  if (!token) { msg("warn", T.needAuth); return; }
+  try {
+    const d = await gc("/api/v2/routing/wrapupcodes?pageSize=100");
+    const codes = (d.entities || []).map(c => `${c.id}  ${c.name}`).join("\n");
+    log("info", "Wrap-up koder (id — navn):\n" + (codes || "(ingen fundet)"));
+    msg("info", "Wrap-up koder listet i Log-fanen.");
+  } catch (e) { msg("err", T.errGeneric + e.message, true); }
 }
 
 /* ---------------- clipboard ---------------- */
@@ -738,6 +891,7 @@ function loadForm() {
   $("gcActionId").value = cfg.gcActionId;
   $("autoStart").checked = !!cfg.autoStart;
   $("autoWrapup").checked = !!cfg.autoWrapup;
+  $("autoWrapupCode").value = cfg.autoWrapupCode;
   $("focusPoints").value = cfg.focusPoints;
   $("convId").value = conversationId;
 }
@@ -759,6 +913,7 @@ function saveForm() {
   cfg.gcActionId = $("gcActionId").value.trim();
   cfg.autoStart = $("autoStart").checked;
   cfg.autoWrapup = $("autoWrapup").checked;
+  cfg.autoWrapupCode = $("autoWrapupCode").value.trim();
   cfg.focusPoints = $("focusPoints").value;
   if ($("convId").value.trim() && !$("convId").value.includes("{{")) conversationId = $("convId").value.trim();
   localStorage.setItem(LS, JSON.stringify(cfg));
@@ -779,7 +934,7 @@ async function init() {
   const lang = (q.get("langTag") || q.get("gcLangTag") || "").slice(0, 2).toLowerCase();
   if (lang && I18N[lang] && !localStorage.getItem(LS)) { cfg.uiLang = lang; cfg.sumLang = lang; }
 
-  log("info", `Widget start v1.5.2 · region=${cfg.region} · authType=${cfg.authType} · conversationId=${conversationId || "(none)"}`);
+  log("info", `Widget start v1.5.4 · region=${cfg.region} · authType=${cfg.authType} · conversationId=${conversationId || "(none)"}`);
   log("info", "URL query: " + (location.search || "(empty)"));
   await handleAuthReturn();
   loadForm();
@@ -847,6 +1002,11 @@ async function init() {
     a.download = "widget-log-forrige-" + (PREV_LOG.savedAt || "").replace(/[:.]/g, "-") + ".txt";
     a.click(); URL.revokeObjectURL(a.href);
   });
+  $("btnListWrapupCodes").addEventListener("click", listWrapupCodes);
+  $("btnDebugStart").addEventListener("click", startDebugFileLog);
+  $("btnDebugStop").addEventListener("click", stopDebugFileLog);
+  $("btnDebugResume").addEventListener("click", resumeDebugFileLogManual);
+  await tryResumeDebugFileLog();
   window.addEventListener("beforeunload", () => stopLive(true));
 }
 
