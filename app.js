@@ -47,12 +47,12 @@ const STATSLS = "gcTranscriptWidgetStats";
 let STATBUF = [];
 try { STATBUF = JSON.parse(localStorage.getItem(STATSLS) || "[]"); } catch (e) { STATBUF = []; }
 function recordStat(entry) {
-  STATBUF.push({ ts: new Date().toISOString(), conversationId, ...entry });
+  STATBUF.push({ ts: localIsoStr(new Date()), conversationId, ...entry });
   if (STATBUF.length > 1000) STATBUF.shift();
   try { localStorage.setItem(STATSLS, JSON.stringify(STATBUF)); } catch (e) { /* storage full — stats just stop growing */ }
 }
 function statsToCsv() {
-  const header = ["timestamp", "conversationId", "trigger", "provider", "model", "via", "success", "ms", "seconds", "promptChars", "responseChars", "error"];
+  const header = ["timestamp_local", "conversationId", "trigger", "provider", "model", "via", "success", "ms", "seconds", "promptChars", "responseChars", "error"];
   const esc = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
   const rows = STATBUF.map(s => [
     s.ts, s.conversationId, s.trigger, s.provider, s.model, s.via, s.success,
@@ -103,7 +103,7 @@ const LOGBUF = [];
 let PREV_LOG = null;
 try { PREV_LOG = JSON.parse(localStorage.getItem(LOGLS) || "null"); } catch (e) { PREV_LOG = null; }
 function log(level, msg) {
-  const ts = new Date().toISOString().substring(11, 23);
+  const ts = localTimeStr(new Date());
   LOGBUF.push({ ts, level, msg: String(msg) });
   if (LOGBUF.length > 500) LOGBUF.shift();
   const fn = level === "err" ? "error" : level === "warn" ? "warn" : "info";
@@ -118,7 +118,7 @@ function log(level, msg) {
    session's log is kept (capped at 500 lines, same as LOGBUF). */
 function persistLog() {
   try {
-    localStorage.setItem(LOGLS, JSON.stringify({ savedAt: new Date().toISOString(), conversationId, entries: LOGBUF }));
+    localStorage.setItem(LOGLS, JSON.stringify({ savedAt: localIsoStr(new Date()), conversationId, entries: LOGBUF }));
   } catch (e) { /* storage full/unavailable — in-memory log still works */ }
 }
 function renderLog() {
@@ -263,6 +263,17 @@ async function resumeDebugFileLogManual() {
 const $ = id => document.getElementById(id);
 const setTxt = (id, v) => { const e = $(id); if (e) e.textContent = v; };
 const api = path => `https://api.${cfg.region}${path}`;
+
+/* Local-time formatting — used everywhere a timestamp is shown to the
+   agent or written into an exported log/CSV, since new Date().toISOString()
+   always returns UTC and was confusingly off from the agent's own clock. */
+function pad(n, w = 2) { return String(n).padStart(w, "0"); }
+function localTimeStr(d) {
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`;
+}
+function localIsoStr(d) {
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${localTimeStr(d)}`;
+}
 
 /* ---------------- i18n rendering ---------------- */
 function applyLang() {
@@ -1093,7 +1104,7 @@ async function init() {
   const lang = (q.get("langTag") || q.get("gcLangTag") || "").slice(0, 2).toLowerCase();
   if (lang && I18N[lang] && !localStorage.getItem(LS)) { cfg.uiLang = lang; cfg.sumLang = lang; }
 
-  log("info", `Widget start v1.7.1 · region=${cfg.region} · authType=${cfg.authType} · conversationId=${conversationId || "(none)"}`);
+  log("info", `Widget start v1.7.2 · region=${cfg.region} · authType=${cfg.authType} · conversationId=${conversationId || "(none)"}`);
   log("info", "URL query: " + (location.search || "(empty)"));
   await handleAuthReturn();
   loadForm();

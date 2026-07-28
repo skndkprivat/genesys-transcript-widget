@@ -249,3 +249,6 @@ Da udklipsholderen (som allerede bruges af "Kopiér"-knapperne) beviseligt virke
 - **"Kopiér statistik (CSV)"** ved siden af "Eksportér statistik (CSV)" — kopierer CSV-teksten, som kan indspættes direkte i et regneark
 
 **Rigtig fix:** få `allow-downloads` tilføjet til widget-integrationens sandbox-attribut i Genesys Admin — så virker de almindelige download-knapper også.
+
+### v1.7.2 — Lokal tid i stedet for UTC
+`new Date().toISOString()` returnerer altid UTC, så både tidsstemplerne i Log-fanen og i den eksporterede statistik-CSV viste UTC i stedet for agentens lokale tid. Rettet: både log-linjer, "Gemt log fra forrige session"-tidsstemplet og CSV-kolonnen (nu `timestamp_local`) bruger agentens lokale browsertid.
