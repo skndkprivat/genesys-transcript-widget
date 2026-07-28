@@ -632,6 +632,13 @@ function mdToHtml(text) {
   return html;
 }
 
+/* Plain-text version for the clipboard and for auto-wrap-up notes —
+   Genesys' native Notes field does not render markdown, so leaving the
+   ** markers in produces literal asterisks there. */
+function stripMarkdown(text) {
+  return (text || "").replace(/\*\*(.+?)\*\*/g, "$1");
+}
+
 /* ---------------- AI summary ---------------- */
 const SUM_LANG_NAME = { da: "Danish", en: "English", fr: "French", de: "German" };
 
@@ -797,7 +804,7 @@ async function summarize() {
   setTxt("t-sum-timing", "");
   try {
     const res = await callProvider(provider, buildPrompt(transcript));
-    lastSummaryText = res.text;
+    lastSummaryText = stripMarkdown(res.text);
     lastSummarizedTranscript = transcript;
     $("summaryOut").innerHTML = mdToHtml(res.text);
     const timing = `${PROVIDER_NAME[provider]} · model ${providerModelLabel(provider) || provider} · ${(res.ms / 1000).toFixed(1)}s`;
@@ -833,7 +840,7 @@ async function compareProviders() {
   const results = await Promise.allSettled(provs.map(p => callProvider(p, prompt)));
   results.forEach((r, i) => { if (r.status === "rejected") log("err", `AI error (${provs[i]}): ${r.reason.message}`); });
   lastSummaryText = results.map((r, i) =>
-    `${PROVIDER_NAME[provs[i]]}${r.status === "fulfilled" ? " (" + (r.value.ms / 1000).toFixed(1) + "s)" : ""}:\n${r.status === "fulfilled" ? r.value.text : (T.errGeneric + r.reason.message)}`
+    `${PROVIDER_NAME[provs[i]]}${r.status === "fulfilled" ? " (" + (r.value.ms / 1000).toFixed(1) + "s)" : ""}:\n${r.status === "fulfilled" ? stripMarkdown(r.value.text) : (T.errGeneric + r.reason.message)}`
   ).join("\n\n");
   outEl.innerHTML = results.map((r, i) => {
     const head = `<h4>${PROVIDER_NAME[provs[i]]}` +
@@ -873,7 +880,7 @@ async function autoSummarizeAndWrapup() {
   log("info", "Auto-resumé startet ved SESSION_ENDED (afventer ikke agentens klik)…");
   try {
     const res = await callProvider(provider, buildPrompt(transcript));
-    lastSummaryText = res.text;
+    lastSummaryText = stripMarkdown(res.text);
     lastSummarizedTranscript = transcript;
     $("summaryOut").innerHTML = mdToHtml(res.text);
     const timing = `${PROVIDER_NAME[provider]} · ${(res.ms / 1000).toFixed(1)}s (auto)`;
@@ -883,7 +890,7 @@ async function autoSummarizeAndWrapup() {
       log("warn", "Auto-resumé: conversationId ændrede sig undervejs — springer wrap-up-indsættelse over for at undgå at skrive på forkert samtale.");
       return;
     }
-    await writeWrapupNotes(convIdAtStart, res.text);
+    await writeWrapupNotes(convIdAtStart, stripMarkdown(res.text));
   } catch (e) {
     log("err", "Auto-resumé fejlede: " + e.message);
   } finally {
@@ -1003,7 +1010,7 @@ async function init() {
   const lang = (q.get("langTag") || q.get("gcLangTag") || "").slice(0, 2).toLowerCase();
   if (lang && I18N[lang] && !localStorage.getItem(LS)) { cfg.uiLang = lang; cfg.sumLang = lang; }
 
-  log("info", `Widget start v1.6.0 · region=${cfg.region} · authType=${cfg.authType} · conversationId=${conversationId || "(none)"}`);
+  log("info", `Widget start v1.6.1 · region=${cfg.region} · authType=${cfg.authType} · conversationId=${conversationId || "(none)"}`);
   log("info", "URL query: " + (location.search || "(empty)"));
   await handleAuthReturn();
   loadForm();

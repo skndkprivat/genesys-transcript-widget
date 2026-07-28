@@ -230,3 +230,6 @@ Nye felter under Opsætning:
 - **API-version** (default `2024-08-01-preview`, ændres sjældent)
 
 Kalder `POST {endpoint}/openai/deployments/{deployment}/chat/completions?api-version={version}` med `api-key`-header (ikke Bearer-token, som Azure OpenAI kræver). Virker med alle tre AI-veje: direkte fra browseren, via Proxy (endpoint/api-version sendes med), og via Data Action (samme). Indgår også i **Sammenlign udbydere**.
+
+### v1.6.1 — Ren tekst (uden markdown) til wrap-up og "Kopiér resumé"
+Rettet: både automatisk indsættelse i wrap-up notes og **"Kopiér resumé"** sendte tidligere den rå AI-tekst med `**fed**`-markdør stadig i — fint i selve widget'en (som render'er det til rigtig fed skrift), men Genesys' native Notes-felt viser markdown råt, så det endte som bogstavelige stjerner i wrap-up-noterne. Begge veje strippe nu `**`-markdørerne før teksten sendes videre.
