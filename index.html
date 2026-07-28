@@ -143,6 +143,7 @@
         <option value="openai">OpenAI</option>
         <option value="gemini">Google Gemini</option>
         <option value="claude">Anthropic Claude</option>
+        <option value="azure">Azure OpenAI (Copilot)</option>
         <option value="ollama">Ollama (lokal)</option>
       </select>
       <select id="sumLang" style="flex:1">
@@ -254,6 +255,16 @@
         <input type="password" id="keyClaude" autocomplete="off">
         <input type="text" id="modelClaude" style="max-width:150px" placeholder="claude-sonnet-4-5">
       </div>
+      <label for="keyAzure">Azure OpenAI (Copilot) API key</label>
+      <div class="keyrow">
+        <input type="password" id="keyAzure" autocomplete="off">
+        <input type="text" id="azureDeployment" style="max-width:150px" placeholder="gpt-4o">
+      </div>
+      <label for="azureEndpoint">Azure OpenAI Endpoint URL</label>
+      <input type="text" id="azureEndpoint" autocomplete="off" spellcheck="false" placeholder="https://mit-resource.openai.azure.com">
+      <label for="azureApiVersion">API-version</label>
+      <input type="text" id="azureApiVersion" autocomplete="off" spellcheck="false" placeholder="2024-08-01-preview">
+      <p class="hint" id="t-hint-azure"></p>
       <p class="hint" id="t-hint-keys"></p>
       <label id="t-lbl-ollama" for="ollamaUrl"></label>
       <div class="keyrow">
@@ -281,7 +292,7 @@
     </fieldset>
 
     <div class="row"><button class="btn" id="btnSave"></button></div>
-    <p class="footer-note" id="verNote">Genesys Transcript &amp; Summary Widget v1.5.4</p>
+    <p class="footer-note" id="verNote">Genesys Transcript &amp; Summary Widget v1.6.0</p>
   </section>
 </main>
 
@@ -315,6 +326,7 @@ const I18N = {
     lblConvId:"Conversation ID (udfyldes automatisk af widget-URL)",
     login:"Log ind", logout:"Log ud", save:"Gem opsætning",
     hintKeys:"Nøgler gemmes kun lokalt i denne browser (localStorage) og sendes direkte til den valgte AI-udbyder.",
+    hintAzure:"Bruges til Azure OpenAI Service (ofte kaldet \"Copilot\" internt). Endpoint-URL'en og deployment-navnet finder du i jeres Azure OpenAI-ressource i Azure Portal. API-version ændres sjældent — lad den stå medmindre jeres IT-afdeling har angivet en anden.",
     legUI:"Sprog", lblUiLang:"Widget-sprog",
     authOk:"Logget ind", authNo:"Ikke logget ind",
     saved:"Opsætning gemt.",
@@ -358,9 +370,11 @@ const I18N = {
     debugResume:"Genaktiver fil-log",
     debugActive:"Fil-log aktiv",
     debugUnsupported:"Fil-log understøttes ikke i denne browser (kræver Chrome eller Edge).",
+    debugBlockedIframe:"Fil-log er ikke tilgængelig her — Chrome/Edge blokerer filvalg inde i en indlejret iframe fra et andet domæne (bekræftet i test i selve Genesys-widget'en). Brug i stedet \"Hent forrige log\" — den virker fint her.",
     hintDebugFile:"Skriver hver logline direkte til en fil på din pc, i samme sekund den sker — så selv hvis widget'en lukkes midt i en generering, ligger det, der nåede at ske, allerede på disken. Første gang skal du vælge/oprette filen (ét klik); herefter genoptages fil-loggen automatisk ved næste samtale, så længe browseren stadig tillader det. Kun Chrome/Edge — og kan være blokeret af Genesys' egen widget-indlejring; test det før I stoler på det.",
     ollamaCors:"Ollama kunne ikke nås fra browseren. Tjek: 1) kører Ollama? 2) er OLLAMA_ORIGINS sat til widget-origin (https://skndkprivat.github.io) eller *, og er Ollama genstartet bagefter? 3) er URL\u2019en korrekt?",
     alreadyGenerating:"Der kører allerede en resumé-generering (måske automatisk) — vent til den er færdig.",
+    alreadySummarized:"Resuméet er allerede genereret for denne transskription — ingen ændringer siden.",
     errGeneric:"Fejl: "
   },
   en:{
@@ -379,6 +393,7 @@ const I18N = {
     lblConvId:"Conversation ID (auto-filled by the widget URL)",
     login:"Log in", logout:"Log out", save:"Save settings",
     hintKeys:"Keys are stored locally in this browser only (localStorage) and sent directly to the chosen AI provider.",
+    hintAzure:"Used for Azure OpenAI Service (often called \"Copilot\" internally). Find the endpoint URL and deployment name in your Azure OpenAI resource in the Azure Portal. The API version rarely changes — leave it unless your IT department specifies otherwise.",
     legUI:"Language", lblUiLang:"Widget language",
     authOk:"Logged in", authNo:"Not logged in",
     saved:"Settings saved.",
@@ -422,9 +437,11 @@ const I18N = {
     debugResume:"Resume file log",
     debugActive:"File log active",
     debugUnsupported:"File log is not supported in this browser (requires Chrome or Edge).",
+    debugBlockedIframe:"File log is not available here — Chrome/Edge blocks the file picker inside a cross-origin embedded iframe (confirmed in a live test inside the Genesys widget). Use \"Download previous log\" instead — that works fine here.",
     hintDebugFile:"Writes every log line straight to a file on your PC, the instant it happens — so even if the widget is closed mid-generation, whatever happened is already on disk. First time, you pick/create the file (one click); after that, the file log resumes automatically on the next call, as long as the browser still grants permission. Chrome/Edge only — and may be blocked by Genesys' own widget embedding; test it before relying on it.",
     ollamaCors:"Ollama could not be reached from the browser. Check: 1) is Ollama running? 2) is OLLAMA_ORIGINS set to the widget origin (or *) and was Ollama restarted afterwards? 3) is the URL correct?",
     alreadyGenerating:"A summary generation is already running (maybe automatic) — wait for it to finish.",
+    alreadySummarized:"The summary has already been generated for this transcript — no changes since.",
     errGeneric:"Error: "
   },
   fr:{
@@ -443,6 +460,7 @@ const I18N = {
     lblConvId:"Conversation ID (rempli automatiquement par l'URL du widget)",
     login:"Connexion", logout:"Déconnexion", save:"Enregistrer",
     hintKeys:"Les clés sont stockées uniquement dans ce navigateur (localStorage) et envoyées directement au fournisseur IA choisi.",
+    hintAzure:"Utilisé pour Azure OpenAI Service (souvent appelé \"Copilot\" en interne). L'URL de point de terminaison et le nom du déploiement se trouvent dans votre ressource Azure OpenAI sur le Portail Azure. La version de l'API change rarement — laissez-la telle quelle sauf indication contraire de votre service informatique.",
     legUI:"Langue", lblUiLang:"Langue du widget",
     authOk:"Connecté", authNo:"Non connecté",
     saved:"Configuration enregistrée.",
@@ -486,9 +504,11 @@ const I18N = {
     debugResume:"Reprendre le journal fichier",
     debugActive:"Journal fichier actif",
     debugUnsupported:"Le journal fichier n'est pas pris en charge dans ce navigateur (nécessite Chrome ou Edge).",
+    debugBlockedIframe:"Le journal fichier n'est pas disponible ici — Chrome/Edge bloque le sélecteur de fichiers dans une iframe intégrée cross-origin (confirmé lors d'un test dans le widget Genesys). Utilisez plutôt \"Télécharger le journal précédent\" — ça fonctionne bien ici.",
     hintDebugFile:"Écrit chaque ligne de journal directement dans un fichier sur votre PC, à l'instant où elle se produit — donc même si le widget est fermé en pleine génération, ce qui s'est passé est déjà sur le disque. La première fois, vous choisissez/créez le fichier (un clic) ; ensuite, le journal fichier reprend automatiquement au prochain appel, tant que le navigateur accorde toujours la permission. Chrome/Edge uniquement — et peut être bloqué par l'intégration du widget de Genesys ; testez-le avant de vous y fier.",
     ollamaCors:"Ollama est injoignable depuis le navigateur. Vérifiez : 1) Ollama est-il lancé ? 2) OLLAMA_ORIGINS est-il défini sur l\u2019origine du widget (ou *) avec redémarrage d\u2019Ollama ? 3) l\u2019URL est-elle correcte ?",
     alreadyGenerating:"Une génération de résumé est déjà en cours (peut-être automatique) — attendez qu'elle se termine.",
+    alreadySummarized:"Le résumé a déjà été généré pour cette transcription — aucun changement depuis.",
     errGeneric:"Erreur : "
   },
   de:{
@@ -507,6 +527,7 @@ const I18N = {
     lblConvId:"Conversation ID (wird automatisch über die Widget-URL gefüllt)",
     login:"Anmelden", logout:"Abmelden", save:"Einstellungen speichern",
     hintKeys:"Schlüssel werden nur lokal in diesem Browser gespeichert (localStorage) und direkt an den gewählten KI-Anbieter gesendet.",
+    hintAzure:"Wird für Azure OpenAI Service verwendet (intern oft \"Copilot\" genannt). Endpoint-URL und Deployment-Name finden Sie in Ihrer Azure-OpenAI-Ressource im Azure Portal. Die API-Version ändert sich selten — lassen Sie sie unverändert, sofern Ihre IT-Abteilung nichts anderes angibt.",
     legUI:"Sprache", lblUiLang:"Widget-Sprache",
     authOk:"Angemeldet", authNo:"Nicht angemeldet",
     saved:"Einstellungen gespeichert.",
@@ -550,9 +571,11 @@ const I18N = {
     debugResume:"Datei-Protokoll fortsetzen",
     debugActive:"Datei-Protokoll aktiv",
     debugUnsupported:"Datei-Protokoll wird in diesem Browser nicht unterstützt (erfordert Chrome oder Edge).",
+    debugBlockedIframe:"Datei-Protokoll ist hier nicht verfügbar — Chrome/Edge blockiert die Dateiauswahl innerhalb eines eingebetteten Cross-Origin-iframes (in einem echten Test im Genesys-Widget bestätigt). Nutzen Sie stattdessen \"Vorheriges Protokoll herunterladen\" — das funktioniert hier problemlos.",
     hintDebugFile:"Schreibt jede Protokollzeile sofort in eine Datei auf Ihrem PC, in dem Moment, in dem sie passiert — selbst wenn das Widget mitten in einer Generierung geschlossen wird, ist das Geschehene bereits auf der Festplatte. Beim ersten Mal wählen/erstellen Sie die Datei (ein Klick); danach wird das Datei-Protokoll beim nächsten Anruf automatisch fortgesetzt, solange der Browser die Berechtigung weiterhin gewährt. Nur Chrome/Edge — und kann durch Genesys' eigene Widget-Einbettung blockiert werden; testen Sie es, bevor Sie sich darauf verlassen.",
     ollamaCors:"Ollama ist vom Browser aus nicht erreichbar. Prüfen Sie: 1) Läuft Ollama? 2) Ist OLLAMA_ORIGINS auf den Widget-Origin (oder *) gesetzt und wurde Ollama danach neu gestartet? 3) Stimmt die URL?",
     alreadyGenerating:"Es läuft bereits eine Zusammenfassungs-Generierung (möglicherweise automatisch) — bitte warten, bis sie fertig ist.",
+    alreadySummarized:"Die Zusammenfassung wurde bereits für dieses Transkript erstellt — keine Änderungen seitdem.",
     errGeneric:"Fehler: "
   }
 };

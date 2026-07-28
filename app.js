@@ -13,6 +13,7 @@ const defaults = {
   keyOpenai: "", modelOpenai: "gpt-4o-mini",
   keyGemini: "", modelGemini: "gemini-2.0-flash",
   keyClaude: "", modelClaude: "claude-sonnet-4-5",
+  keyAzure: "", azureEndpoint: "", azureDeployment: "", azureApiVersion: "2024-08-01-preview",
   ollamaUrl: "http://localhost:11434", modelOllama: "llama3.1",
   proxyUrl: "",
   whisperUrl: "", whisperCh0Role: "customer",
@@ -33,6 +34,7 @@ let fetchedPhrases = [];      // from transcripturl: [{who, offsetMs, text}]
 let T = I18N[cfg.uiLang] || I18N.da;
 let lastSummaryText = ""; // plain text mirror of #summaryOut, for the Copy button (HTML is rendered markdown)
 let summarizing = false; // guards against manual + auto-wrapup firing concurrently (same transcript, duplicate AI call)
+let lastSummarizedTranscript = ""; // transcript text the summary currently shown was generated from — used to disable the button once it's redundant
 
 /* ---------------- system log ---------------- */
 const LOGBUF = [];
@@ -130,7 +132,7 @@ function debugLogAppend(line) {
   return debugWriteQueue;
 }
 async function startDebugFileLog() {
-  if (!("showSaveFilePicker" in window)) { msg("warn", T.debugUnsupported); return; }
+  if (!debugFileLogAvailable()) { msg("warn", inIframe() ? T.debugBlockedIframe : T.debugUnsupported); return; }
   try {
     const handle = await window.showSaveFilePicker({
       suggestedName: "widget-debug-" + new Date().toISOString().slice(0, 10) + ".log",
@@ -150,8 +152,24 @@ function stopDebugFileLog() {
   renderDebugStatus();
   if (name) log("info", "Fil-log stoppet: " + name);
 }
+function inIframe() {
+  try { return window.self !== window.top; } catch (e) { return true; }
+}
+function debugFileLogAvailable() {
+  // Cross-origin sub-frames (which the Genesys widget iframe always is,
+  // since it's served from a different origin than Genesys' own app) are
+  // blocked by Chrome/Edge from showing the file picker at all — confirmed
+  // in a live Interaction Widget: "Cross origin sub frames aren't allowed
+  // to show a file picker." No workaround exists; the localStorage-based
+  // "Hent forrige log" stays the working fallback inside the widget.
+  return ("showSaveFilePicker" in window) && !inIframe();
+}
 async function tryResumeDebugFileLog() {
-  if (!("showSaveFilePicker" in window)) { setTxt("debugFileStatus", T.debugUnsupported); if ($("btnDebugStart")) $("btnDebugStart").hidden = true; return; }
+  if (!debugFileLogAvailable()) {
+    setTxt("debugFileStatus", inIframe() ? T.debugBlockedIframe : T.debugUnsupported);
+    if ($("btnDebugStart")) $("btnDebugStart").hidden = true;
+    return;
+  }
   try {
     const handle = await idbGetHandle();
     if (!handle) return;
@@ -222,6 +240,7 @@ function applyLang() {
   setTxt("btnLogout", T.logout);
   setTxt("btnSave", T.save);
   setTxt("t-hint-keys", T.hintKeys);
+  setTxt("t-hint-azure", T.hintAzure);
   setTxt("t-lbl-proxy", T.lblProxy);
   setTxt("t-hint-proxy", T.hintProxy);
   setTxt("t-lbl-action", T.lblAction);
@@ -553,6 +572,24 @@ function renderStream() {
        <div>${escapeHtml(r.text)}</div>
      </div>`).join("");
   el.parentElement.scrollTop = el.parentElement.scrollHeight;
+  updateSummarizeAvailability();
+}
+
+/* Keeps "Generér resumé"/"Sammenlign udbydere" disabled unless there's
+   actually something new to summarize — no transcript yet, or the
+   transcript hasn't changed since the summary currently shown was made
+   (e.g. right after auto-resumé already ran at SESSION_ENDED). Doesn't
+   touch button state while a generation is already in progress. */
+function updateSummarizeAvailability() {
+  if (summarizing) return;
+  const btn = $("btnSummarize"), cbtn = $("btnCompare");
+  if (!btn || !cbtn) return;
+  const transcript = transcriptAsText();
+  const hasTranscript = !!transcript;
+  const upToDate = hasTranscript && transcript === lastSummarizedTranscript;
+  btn.disabled = !hasTranscript || upToDate;
+  btn.title = !hasTranscript ? T.noTranscript : (upToDate ? T.alreadySummarized : "");
+  cbtn.disabled = !hasTranscript;
 }
 
 function transcriptAsText() {
@@ -616,15 +653,22 @@ function buildPrompt(transcript) {
 function providerAvailable(p) {
   if (cfg.gcActionId || cfg.proxyUrl) return true;
   if (p === "ollama") return !!cfg.ollamaUrl;
+  if (p === "azure") return !!(cfg.keyAzure && cfg.azureEndpoint && cfg.azureDeployment);
   return !!cfg["key" + p[0].toUpperCase() + p.slice(1)];
+}
+
+/* Model/deployment label shown in logs and the timing line. Azure has no
+   separate "model" setting — the deployment name plays that role. */
+function providerModelLabel(provider) {
+  if (provider === "ollama") return cfg.modelOllama || defaults.modelOllama;
+  if (provider === "azure") return cfg.azureDeployment || "";
+  return cfg["model" + provider[0].toUpperCase() + provider.slice(1)] || defaults["model" + provider[0].toUpperCase() + provider.slice(1)] || "";
 }
 
 async function callProvider(provider, prompt) {
   const t0 = performance.now();
   const via = cfg.gcActionId ? "data-action" : cfg.proxyUrl ? "proxy" : "direct";
-  const model = provider === "ollama"
-    ? (cfg.modelOllama || defaults.modelOllama)
-    : (cfg["model" + provider[0].toUpperCase() + provider.slice(1)] || defaults["model" + provider[0].toUpperCase() + provider.slice(1)]);
+  const model = providerModelLabel(provider);
   log("info", `AI call: ${provider} via ${via}, model ${model}, prompt ${prompt.length} chars`);
   const key = provider === "ollama" ? "" : cfg["key" + provider[0].toUpperCase() + provider.slice(1)];
   let out = "";
@@ -638,22 +682,24 @@ async function callProvider(provider, prompt) {
       method: "POST",
       body: JSON.stringify({
         provider,
-        model: cfg["model" + provider[0].toUpperCase() + provider.slice(1)] || "",
-        prompt
+        model,
+        prompt,
+        ...(provider === "azure" ? { azureEndpoint: cfg.azureEndpoint, azureApiVersion: cfg.azureApiVersion } : {})
       })
     });
     out = (d && d.text) || "";
 
   } else if (cfg.proxyUrl) {
     /* Proxy mode: server-side key/URL takes precedence; local values are fallback only. */
-    const model = cfg["model" + provider[0].toUpperCase() + provider.slice(1)] || "";
     const r = await fetch(cfg.proxyUrl.replace(/\/$/, "") + "/summarize", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         provider, model, prompt,
         clientKey: key || undefined,
-        ollamaUrl: provider === "ollama" ? (cfg.ollamaUrl || undefined) : undefined
+        ollamaUrl: provider === "ollama" ? (cfg.ollamaUrl || undefined) : undefined,
+        azureEndpoint: provider === "azure" ? (cfg.azureEndpoint || undefined) : undefined,
+        azureApiVersion: provider === "azure" ? (cfg.azureApiVersion || undefined) : undefined
       })
     });
     const d = await r.json().catch(() => ({}));
@@ -689,8 +735,8 @@ async function callProvider(provider, prompt) {
     out = d.choices?.[0]?.message?.content || "";
 
   } else if (provider === "gemini") {
-    const model = cfg.modelGemini || "gemini-2.0-flash";
-    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`, {
+    const modelG = cfg.modelGemini || "gemini-2.0-flash";
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelG}:generateContent?key=${encodeURIComponent(key)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
@@ -698,6 +744,22 @@ async function callProvider(provider, prompt) {
     const d = await r.json();
     if (!r.ok) throw new Error(d.error?.message || r.status);
     out = d.candidates?.[0]?.content?.parts?.map(p => p.text).join("") || "";
+
+  } else if (provider === "azure") {
+    /* Azure OpenAI Service (the "Copilot" backend most orgs mean internally):
+       api-key header (not Bearer), and the model is selected by the
+       deployment name baked into the URL, not a body field. */
+    const ep = (cfg.azureEndpoint || "").replace(/\/$/, "");
+    const dep = cfg.azureDeployment || "";
+    const ver = cfg.azureApiVersion || "2024-08-01-preview";
+    const r = await fetch(`${ep}/openai/deployments/${encodeURIComponent(dep)}/chat/completions?api-version=${encodeURIComponent(ver)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "api-key": key },
+      body: JSON.stringify({ messages: [{ role: "user", content: prompt }], max_tokens: 1000 })
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error?.message || r.status);
+    out = d.choices?.[0]?.message?.content || "";
 
   } else { // claude
     const r = await fetch("https://api.anthropic.com/v1/messages", {
@@ -719,7 +781,7 @@ async function callProvider(provider, prompt) {
   return { text: out.trim(), ms };
 }
 
-const PROVIDER_NAME = { openai: "OpenAI", gemini: "Gemini", claude: "Claude", ollama: "Ollama" };
+const PROVIDER_NAME = { openai: "OpenAI", gemini: "Gemini", claude: "Claude", azure: "Azure OpenAI (Copilot)", ollama: "Ollama" };
 
 async function summarize() {
   const transcript = transcriptAsText();
@@ -736,8 +798,9 @@ async function summarize() {
   try {
     const res = await callProvider(provider, buildPrompt(transcript));
     lastSummaryText = res.text;
+    lastSummarizedTranscript = transcript;
     $("summaryOut").innerHTML = mdToHtml(res.text);
-    const timing = `${PROVIDER_NAME[provider]} · model ${cfg["model" + provider[0].toUpperCase() + provider.slice(1)] || provider} · ${(res.ms / 1000).toFixed(1)}s`;
+    const timing = `${PROVIDER_NAME[provider]} · model ${providerModelLabel(provider) || provider} · ${(res.ms / 1000).toFixed(1)}s`;
     setTxt("t-sum-timing", timing);
     msg("info", timing);
   } catch (e) {
@@ -745,9 +808,9 @@ async function summarize() {
     msg("err", T.errGeneric + e.message, true);
   } finally {
     summarizing = false;
-    btn.disabled = false;
     btn.textContent = T.summarize;
     $("btnCompare").disabled = false;
+    updateSummarizeAvailability();
   }
 }
 
@@ -756,7 +819,7 @@ async function summarize() {
 async function compareProviders() {
   const transcript = transcriptAsText();
   if (!transcript) { msg("warn", T.noTranscript); return; }
-  const provs = ["openai", "gemini", "claude", "ollama"].filter(providerAvailable);
+  const provs = ["openai", "gemini", "claude", "azure", "ollama"].filter(providerAvailable);
   if (!provs.length) { msg("warn", T.needKey); return; }
   if (summarizing) { msg("warn", T.alreadyGenerating, true); return; }
   summarizing = true;
@@ -778,11 +841,12 @@ async function compareProviders() {
     const body = r.status === "fulfilled" ? mdToHtml(r.value.text) : `<p>${escapeHtml(T.errGeneric + r.reason.message)}</p>`;
     return head + body;
   }).join("");
+  lastSummarizedTranscript = transcript;
   setTxt("t-sum-timing", "");
   summarizing = false;
-  btn.disabled = false;
   btn.textContent = T.compare;
   $("btnSummarize").disabled = false;
+  updateSummarizeAvailability();
 }
 
 /* ---------------- auto summary + auto wrap-up (opt-in) ----------------
@@ -810,6 +874,7 @@ async function autoSummarizeAndWrapup() {
   try {
     const res = await callProvider(provider, buildPrompt(transcript));
     lastSummaryText = res.text;
+    lastSummarizedTranscript = transcript;
     $("summaryOut").innerHTML = mdToHtml(res.text);
     const timing = `${PROVIDER_NAME[provider]} · ${(res.ms / 1000).toFixed(1)}s (auto)`;
     setTxt("t-sum-timing", timing);
@@ -823,9 +888,9 @@ async function autoSummarizeAndWrapup() {
     log("err", "Auto-resumé fejlede: " + e.message);
   } finally {
     summarizing = false;
-    btn.disabled = false;
     btn.textContent = T.summarize;
     $("btnCompare").disabled = false;
+    updateSummarizeAvailability();
   }
 }
 
@@ -884,6 +949,8 @@ function loadForm() {
   $("keyOpenai").value = cfg.keyOpenai; $("modelOpenai").value = cfg.modelOpenai;
   $("keyGemini").value = cfg.keyGemini; $("modelGemini").value = cfg.modelGemini;
   $("keyClaude").value = cfg.keyClaude; $("modelClaude").value = cfg.modelClaude;
+  $("keyAzure").value = cfg.keyAzure; $("azureDeployment").value = cfg.azureDeployment;
+  $("azureEndpoint").value = cfg.azureEndpoint; $("azureApiVersion").value = cfg.azureApiVersion;
   $("ollamaUrl").value = cfg.ollamaUrl; $("modelOllama").value = cfg.modelOllama;
   $("proxyUrl").value = cfg.proxyUrl;
   $("whisperUrl").value = cfg.whisperUrl;
@@ -906,6 +973,8 @@ function saveForm() {
   cfg.keyOpenai = $("keyOpenai").value.trim(); cfg.modelOpenai = $("modelOpenai").value.trim() || defaults.modelOpenai;
   cfg.keyGemini = $("keyGemini").value.trim(); cfg.modelGemini = $("modelGemini").value.trim() || defaults.modelGemini;
   cfg.keyClaude = $("keyClaude").value.trim(); cfg.modelClaude = $("modelClaude").value.trim() || defaults.modelClaude;
+  cfg.keyAzure = $("keyAzure").value.trim(); cfg.azureDeployment = $("azureDeployment").value.trim();
+  cfg.azureEndpoint = $("azureEndpoint").value.trim(); cfg.azureApiVersion = $("azureApiVersion").value.trim() || defaults.azureApiVersion;
   cfg.ollamaUrl = $("ollamaUrl").value.trim(); cfg.modelOllama = $("modelOllama").value.trim() || defaults.modelOllama;
   cfg.proxyUrl = $("proxyUrl").value.trim();
   cfg.whisperUrl = $("whisperUrl").value.trim();
@@ -934,12 +1003,13 @@ async function init() {
   const lang = (q.get("langTag") || q.get("gcLangTag") || "").slice(0, 2).toLowerCase();
   if (lang && I18N[lang] && !localStorage.getItem(LS)) { cfg.uiLang = lang; cfg.sumLang = lang; }
 
-  log("info", `Widget start v1.5.4 · region=${cfg.region} · authType=${cfg.authType} · conversationId=${conversationId || "(none)"}`);
+  log("info", `Widget start v1.6.0 · region=${cfg.region} · authType=${cfg.authType} · conversationId=${conversationId || "(none)"}`);
   log("info", "URL query: " + (location.search || "(empty)"));
   await handleAuthReturn();
   loadForm();
   applyLang();
   renderStream();
+  updateSummarizeAvailability();
 
   /* ---- fully automatic realtime mode ----
      If autoStart is on, the widget requires zero agent action:
@@ -961,7 +1031,7 @@ async function init() {
   $("btnLive").addEventListener("click", () => liveActive ? stopLive() : startLive().catch(e => msg("err", T.errGeneric + e.message, true)));
   $("btnFetch").addEventListener("click", fetchTranscript);
   $("btnCopyT").addEventListener("click", () => copyText(transcriptAsText()));
-  $("btnClear").addEventListener("click", () => { utterances.clear(); fetchedPhrases = []; renderStream(); });
+  $("btnClear").addEventListener("click", () => { utterances.clear(); fetchedPhrases = []; lastSummarizedTranscript = ""; renderStream(); });
   $("btnSummarize").addEventListener("click", summarize);
   $("btnCompare").addEventListener("click", compareProviders);
   $("btnCopyS").addEventListener("click", () => copyText(lastSummaryText));

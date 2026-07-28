@@ -211,3 +211,22 @@ Ny funktion i Log-fanen: **"Start fil-log"**. Skriver hver logline direkte til e
 - Herefter gemmes filhandle'en i IndexedDB, så næste samtale (nyt sideload) forsøger at genoptage automatisk uden nyt klik — lykkes det ikke (browseren beder om fornyet tilladelse), vises knappen **"Genaktiver fil-log"**.
 - **Kun Chrome/Edge** — API'et findes ikke i Firefox/Safari; knappen skjules og der vises en besked i stedet.
 - **Uverificeret i selve Genesys-widget-iframen**: Genesys' egen indlejring kan i teorien blokere File System Access API via sin permissions-policy. Test det i en rigtig Interaction Widget, før I stoler på det — hvis det ikke virker der, er `localStorage`-løsningen ("Hent forrige log") stadig fallback.
+
+### v1.5.5 — Fil-log deaktiveret i iframe, "kun når nødvendigt"-knap, dublet-fix bekræftet
+**Fil-log virker ikke i den rigtige Genesys-widget** — bekræftet ved test: Chrome/Edge blokerer `showSaveFilePicker` med fejlen *"Cross origin sub frames aren't allowed to show a file picker"*, fordi widget'en altid kører i en cross-origin iframe (GitHub Pages-domænet er forskelligt fra Genesys'). Widget'en genkender nu selv dette (`window.self !== window.top`) og skjuler "Start fil-log"-knappen helt inde i Genesys, med en tydelig besked om at bruge **"Hent forrige log"** i stedet (den bruger `localStorage`, som ikke har samme begrænsning). Fil-log virker stadig fint, hvis du åbner `index.html` direkte i en browserfane uden for Genesys, til lokal test.
+
+**"Generér resumé" og "Sammenlign udbydere" er nu kun aktive, når der reelt er noget at generere**:
+- Deaktiveret, hvis der endnu ikke er nogen transskription.
+- Deaktiveret, hvis resuméet allerede er genereret for den transskription, der står der nu (fx lige efter auto-resumé er kørt automatisk ved samtaleafslutning) — forhindrer bekræftet dublet-scenarie fra sidst, hvor agenten klikkede manuelt oven i en allerede kørende auto-generering.
+- Genaktiveres automatisk, hvis transskriptionen ændrer sig (fx flere fraser kommer ind), eller ved **Ryd**.
+
+### v1.6.0 — Azure OpenAI (Copilot) som femte AI-udbyder
+Nyt valg i AI-udbyder-dropdown’en: **"Azure OpenAI (Copilot)"** — til Azure OpenAI Service, som er det, de fleste virksomheder mener, når de siger "Copilot" internt (Microsoft 365 Copilot og GitHub Copilot har ikke en tilsvarende åben chat-completions-API til tredjepartsintegration).
+
+Nye felter under Opsætning:
+- **Azure OpenAI (Copilot) API key**
+- **Deployment-navn** (fx `gpt-4o`) — spiller samme rolle som "model" hos de andre udbydere
+- **Endpoint URL** (fx `https://mit-resource.openai.azure.com`)
+- **API-version** (default `2024-08-01-preview`, ændres sjældent)
+
+Kalder `POST {endpoint}/openai/deployments/{deployment}/chat/completions?api-version={version}` med `api-key`-header (ikke Bearer-token, som Azure OpenAI kræver). Virker med alle tre AI-veje: direkte fra browseren, via Proxy (endpoint/api-version sendes med), og via Data Action (samme). Indgår også i **Sammenlign udbydere**.
