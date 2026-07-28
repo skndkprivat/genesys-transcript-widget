@@ -283,7 +283,7 @@
 <tr><td>OAuth</td>
     <td class="L" data-da="Token Implicit Grant-klient med widget-URL som redirect URI; scopes: conversations, speech-and-text-analytics, notifications (+ integrations ved Data Action)." data-en="Token Implicit Grant client with the widget URL as redirect URI; scopes: conversations, speech-and-text-analytics, notifications (+ integrations for the Data Action path)."></td></tr>
 <tr><td>Widget</td>
-    <td class="L" data-da="Interaction Widget-integration med URL-interpolation {{gcConversationId}} og {{gcLangTag}}; sandbox: allow-scripts, allow-same-origin, allow-forms, allow-popups; feature: clipboard-write." data-en="Interaction Widget integration with {{gcConversationId}} and {{gcLangTag}} URL interpolation; sandbox: allow-scripts, allow-same-origin, allow-forms, allow-popups; feature: clipboard-write."></td></tr>
+    <td class="L" data-da="Interaction Widget-integration med URL-interpolation {{gcConversationId}} og {{gcLangTag}}; sandbox: allow-scripts, allow-same-origin, allow-forms, allow-popups, <strong>allow-downloads</strong> (krævet for log-/CSV-download — uden den fejler filnedhentning stille i en cross-origin iframe); feature: clipboard-write." data-en="Interaction Widget integration with {{gcConversationId}} and {{gcLangTag}} URL interpolation; sandbox: allow-scripts, allow-same-origin, allow-forms, allow-popups, <strong>allow-downloads</strong> (required for log/CSV downloads — without it, file downloads fail silently in a cross-origin iframe); feature: clipboard-write."></td></tr>
 </table>
 
 <h2 class="L" data-da="8. Afgrænsning: MCP og Genesys" data-en="8. Scoping: MCP and Genesys"></h2>
@@ -340,7 +340,7 @@
  data-da="Databeskyttelse: Med Ollama-vejen (direkte eller via intern server) forlader hverken transskript eller resumé organisationens infrastruktur. Med Data Action-/proxy-vejen sendes transskriptet til den valgte cloud-AI-udbyder — afklar databehandleraftale og region (EU-endpoints) inden produktion."
  data-en="Data protection: With the Ollama path (direct or via an internal server), neither transcript nor summary ever leaves the organisation's infrastructure. With the Data Action/proxy path, the transcript is sent to the chosen cloud AI provider — clarify DPA and region (EU endpoints) before production."></div>
 
-<footer>Genesys Transcript &amp; AI Summary Widget · v1.6.0 · Sabio / skndkprivat</footer>
+<footer>Genesys Transcript &amp; AI Summary Widget · v1.7.1 · Sabio / skndkprivat</footer>
 
 <script>
 function setLang(l){

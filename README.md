@@ -240,3 +240,12 @@ Ny sektion i Log-fanen: **"Vis statistik i log"**, **"Eksportér statistik (CSV)
 - **"Vis statistik i log"** viser en hurtig opsummering (antal, gennemsnit/min/max pr. udbyder) direkte i Log-fanen.
 - **"Eksportér statistik (CSV)"** downloader alle registrerede kald som en `.csv`-fil, klar til Excel — til at dokumentere tid/pris-effekten på tværs af udbydere over tid.
 - Gemmes i `localStorage` (nøgle `gcTranscriptWidgetStats`), samme princip som log-persistensen — overlever iframe-luk, men er **pr. browser/maskine, ikke centralt samlet på tværs af agenter**. Skal I dokumentere på team-niveau, skal CSV-filer fra hver agent-maskine eksporteres og samles manuelt (eller udvides til et centralt endpoint senere — ikke bygget).
+
+### v1.7.1 — Kopiér-fallback når download er blokeret + `allow-downloads` identificeret
+Opdaget under test: både "Hent forrige log" og "Eksportér statistik (CSV)" fejler stille i den rigtige Genesys-widget — sandsynligvis fordi jeres Interaction Widget-integrations sandbox-attribut mangler `allow-downloads` (dokumenteret i SYSTEM.html afsnit 7). Uden den tillader browseren slet ikke fil-downloads fra en indlejret cross-origin iframe.
+
+Da udklipsholderen (som allerede bruges af "Kopiér"-knapperne) beviseligt virker i jeres iframe, er der nu tilføjet kopiér-alternativer:
+- **"Kopiér forrige log"** ved siden af "Hent forrige log"
+- **"Kopiér statistik (CSV)"** ved siden af "Eksportér statistik (CSV)" — kopierer CSV-teksten, som kan indspættes direkte i et regneark
+
+**Rigtig fix:** få `allow-downloads` tilføjet til widget-integrationens sandbox-attribut i Genesys Admin — så virker de almindelige download-knapper også.

@@ -168,6 +168,7 @@
       <button class="btn secondary" id="btnLogCopy"></button>
       <button class="btn secondary" id="btnLogSave"></button>
       <button class="btn secondary" id="btnLogPrev" hidden></button>
+      <button class="btn secondary" id="btnLogPrevCopy" hidden></button>
       <button class="btn secondary" id="btnLogClear"></button>
     </div>
     <div class="row">
@@ -180,6 +181,7 @@
     <div class="row">
       <button class="btn secondary" id="btnStatsShow"></button>
       <button class="btn secondary" id="btnStatsExport"></button>
+      <button class="btn secondary" id="btnStatsCopy"></button>
       <button class="btn secondary" id="btnStatsClear"></button>
     </div>
     <p class="hint" id="t-hint-stats"></p>
@@ -298,7 +300,7 @@
     </fieldset>
 
     <div class="row"><button class="btn" id="btnSave"></button></div>
-    <p class="footer-note" id="verNote">Genesys Transcript &amp; Summary Widget v1.7.0</p>
+    <p class="footer-note" id="verNote">Genesys Transcript &amp; Summary Widget v1.7.1</p>
   </section>
 </main>
 
@@ -371,6 +373,7 @@ const I18N = {
     lblGrant:"OAuth Grant Type (skal matche klienten i Genesys)",
     logSave:"Gem som fil",
     logPrev:"Hent forrige log",
+    logPrevCopy:"Kopiér forrige log",
     debugStart:"Start fil-log",
     debugStop:"Stop fil-log",
     debugResume:"Genaktiver fil-log",
@@ -380,6 +383,7 @@ const I18N = {
     hintDebugFile:"Skriver hver logline direkte til en fil på din pc, i samme sekund den sker — så selv hvis widget'en lukkes midt i en generering, ligger det, der nåede at ske, allerede på disken. Første gang skal du vælge/oprette filen (ét klik); herefter genoptages fil-loggen automatisk ved næste samtale, så længe browseren stadig tillader det. Kun Chrome/Edge — og kan være blokeret af Genesys' egen widget-indlejring; test det før I stoler på det.",
     statsShow:"Vis statistik i log",
     statsExport:"Eksportér statistik (CSV)",
+    statsCopy:"Kopiér statistik (CSV)",
     statsClear:"Ryd statistik",
     statsEmpty:"Ingen statistik registreret endnu — generér mindst ét resumé først.",
     statsShown:"Statistik-oversigt vist i Log-fanen.",
@@ -444,6 +448,7 @@ const I18N = {
     lblGrant:"OAuth Grant Type (must match the client in Genesys)",
     logSave:"Save as file",
     logPrev:"Download previous log",
+    logPrevCopy:"Copy previous log",
     debugStart:"Start file log",
     debugStop:"Stop file log",
     debugResume:"Resume file log",
@@ -453,6 +458,7 @@ const I18N = {
     hintDebugFile:"Writes every log line straight to a file on your PC, the instant it happens — so even if the widget is closed mid-generation, whatever happened is already on disk. First time, you pick/create the file (one click); after that, the file log resumes automatically on the next call, as long as the browser still grants permission. Chrome/Edge only — and may be blocked by Genesys' own widget embedding; test it before relying on it.",
     statsShow:"Show stats in log",
     statsExport:"Export stats (CSV)",
+    statsCopy:"Copy stats (CSV)",
     statsClear:"Clear stats",
     statsEmpty:"No stats recorded yet — generate at least one summary first.",
     statsShown:"Stats overview shown in the Log tab.",
@@ -517,6 +523,7 @@ const I18N = {
     lblGrant:"OAuth Grant Type (doit correspondre au client dans Genesys)",
     logSave:"Enregistrer",
     logPrev:"Télécharger le journal précédent",
+    logPrevCopy:"Copier le journal précédent",
     debugStart:"Démarrer le journal fichier",
     debugStop:"Arrêter le journal fichier",
     debugResume:"Reprendre le journal fichier",
@@ -526,6 +533,7 @@ const I18N = {
     hintDebugFile:"Écrit chaque ligne de journal directement dans un fichier sur votre PC, à l'instant où elle se produit — donc même si le widget est fermé en pleine génération, ce qui s'est passé est déjà sur le disque. La première fois, vous choisissez/créez le fichier (un clic) ; ensuite, le journal fichier reprend automatiquement au prochain appel, tant que le navigateur accorde toujours la permission. Chrome/Edge uniquement — et peut être bloqué par l'intégration du widget de Genesys ; testez-le avant de vous y fier.",
     statsShow:"Afficher les stats dans le journal",
     statsExport:"Exporter les stats (CSV)",
+    statsCopy:"Copier les stats (CSV)",
     statsClear:"Effacer les stats",
     statsEmpty:"Aucune statistique enregistrée pour l'instant — générez d'abord au moins un résumé.",
     statsShown:"Aperçu des statistiques affiché dans l'onglet Journal.",
@@ -590,6 +598,7 @@ const I18N = {
     lblGrant:"OAuth Grant Type (muss dem Client in Genesys entsprechen)",
     logSave:"Als Datei speichern",
     logPrev:"Vorheriges Protokoll herunterladen",
+    logPrevCopy:"Vorheriges Protokoll kopieren",
     debugStart:"Datei-Protokoll starten",
     debugStop:"Datei-Protokoll stoppen",
     debugResume:"Datei-Protokoll fortsetzen",
@@ -599,6 +608,7 @@ const I18N = {
     hintDebugFile:"Schreibt jede Protokollzeile sofort in eine Datei auf Ihrem PC, in dem Moment, in dem sie passiert — selbst wenn das Widget mitten in einer Generierung geschlossen wird, ist das Geschehene bereits auf der Festplatte. Beim ersten Mal wählen/erstellen Sie die Datei (ein Klick); danach wird das Datei-Protokoll beim nächsten Anruf automatisch fortgesetzt, solange der Browser die Berechtigung weiterhin gewährt. Nur Chrome/Edge — und kann durch Genesys' eigene Widget-Einbettung blockiert werden; testen Sie es, bevor Sie sich darauf verlassen.",
     statsShow:"Statistik im Protokoll anzeigen",
     statsExport:"Statistik exportieren (CSV)",
+    statsCopy:"Statistik kopieren (CSV)",
     statsClear:"Statistik löschen",
     statsEmpty:"Noch keine Statistik erfasst — erstellen Sie zuerst mindestens eine Zusammenfassung.",
     statsShown:"Statistikübersicht im Protokoll-Tab angezeigt.",

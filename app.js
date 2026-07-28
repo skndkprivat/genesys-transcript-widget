@@ -67,6 +67,10 @@ function exportStatsCsv() {
   a.download = "widget-stats-" + new Date().toISOString().slice(0, 10) + ".csv";
   a.click(); URL.revokeObjectURL(a.href);
 }
+function copyStatsCsv() {
+  if (!STATBUF.length) { msg("warn", T.statsEmpty); return; }
+  copyText(statsToCsv());
+}
 function showStatsSummary() {
   if (!STATBUF.length) { msg("warn", T.statsEmpty); return; }
   const byKey = {};
@@ -127,6 +131,11 @@ function renderLog() {
 }
 function logAsText() {
   return LOGBUF.map(r => `${r.ts} [${r.level.toUpperCase()}] ${r.msg}`).join("\n");
+}
+function prevLogAsText() {
+  if (!PREV_LOG) return "";
+  const header = `Gemt: ${PREV_LOG.savedAt} \u00b7 conversationId: ${PREV_LOG.conversationId || "(ukendt)"}\n\n`;
+  return header + (PREV_LOG.entries || []).map(r => `${r.ts} [${r.level.toUpperCase()}] ${r.msg}`).join("\n");
 }
 
 /* ---------------- debug mode: continuous file log (File System Access API) ----------------
@@ -283,6 +292,7 @@ function applyLang() {
   setTxt("btnLogCopy", T.copyT);
   setTxt("btnLogSave", T.logSave);
   setTxt("btnLogPrev", T.logPrev);
+  setTxt("btnLogPrevCopy", T.logPrevCopy);
   setTxt("btnDebugStart", T.debugStart);
   setTxt("btnDebugStop", T.debugStop);
   setTxt("btnDebugResume", T.debugResume);
@@ -290,6 +300,7 @@ function applyLang() {
   renderDebugStatus();
   setTxt("btnStatsShow", T.statsShow);
   setTxt("btnStatsExport", T.statsExport);
+  setTxt("btnStatsCopy", T.statsCopy);
   setTxt("btnStatsClear", T.statsClear);
   setTxt("t-hint-stats", T.hintStats);
   setTxt("btnLogClear", T.clear);
@@ -1082,7 +1093,7 @@ async function init() {
   const lang = (q.get("langTag") || q.get("gcLangTag") || "").slice(0, 2).toLowerCase();
   if (lang && I18N[lang] && !localStorage.getItem(LS)) { cfg.uiLang = lang; cfg.sumLang = lang; }
 
-  log("info", `Widget start v1.7.0 · region=${cfg.region} · authType=${cfg.authType} · conversationId=${conversationId || "(none)"}`);
+  log("info", `Widget start v1.7.1 · region=${cfg.region} · authType=${cfg.authType} · conversationId=${conversationId || "(none)"}`);
   log("info", "URL query: " + (location.search || "(empty)"));
   await handleAuthReturn();
   loadForm();
@@ -1138,22 +1149,25 @@ async function init() {
   });
   if (PREV_LOG && Array.isArray(PREV_LOG.entries) && PREV_LOG.entries.length) {
     $("btnLogPrev").hidden = false;
+    $("btnLogPrevCopy").hidden = false;
     log("info", `Gemt log fra forrige session fundet (${PREV_LOG.savedAt}, conversationId=${PREV_LOG.conversationId || "(ukendt)"}) — se "${T.logPrev}" i Log-fanen.`);
   } else {
     $("btnLogPrev").hidden = true;
+    $("btnLogPrevCopy").hidden = true;
   }
   $("btnLogPrev").addEventListener("click", () => {
     if (!PREV_LOG) return;
-    const header = `Gemt: ${PREV_LOG.savedAt} \u00b7 conversationId: ${PREV_LOG.conversationId || "(ukendt)"}\n\n`;
-    const text = header + (PREV_LOG.entries || []).map(r => `${r.ts} [${r.level.toUpperCase()}] ${r.msg}`).join("\n");
+    const text = prevLogAsText();
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
     a.download = "widget-log-forrige-" + (PREV_LOG.savedAt || "").replace(/[:.]/g, "-") + ".txt";
     a.click(); URL.revokeObjectURL(a.href);
   });
+  $("btnLogPrevCopy").addEventListener("click", () => copyText(prevLogAsText()));
   $("btnListWrapupCodes").addEventListener("click", listWrapupCodes);
   $("btnStatsShow").addEventListener("click", showStatsSummary);
   $("btnStatsExport").addEventListener("click", exportStatsCsv);
+  $("btnStatsCopy").addEventListener("click", copyStatsCsv);
   $("btnStatsClear").addEventListener("click", clearStats);
   $("btnDebugStart").addEventListener("click", startDebugFileLog);
   $("btnDebugStop").addEventListener("click", stopDebugFileLog);
