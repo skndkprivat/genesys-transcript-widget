@@ -15,8 +15,10 @@ const defaults = {
   keyClaude: "", modelClaude: "claude-sonnet-4-5",
   ollamaUrl: "http://localhost:11434", modelOllama: "llama3.1",
   proxyUrl: "",
+  whisperUrl: "", whisperCh0Role: "customer",
   gcActionId: "",
   autoStart: true,
+  autoWrapup: false,
   authType: "pkce",
   focusPoints: ""
 };
@@ -28,6 +30,7 @@ let ws = null, channelId = "", liveActive = false, liveConvId = "";
 let utterances = new Map();   // utteranceId -> {who, offsetMs, text, isFinal}
 let fetchedPhrases = [];      // from transcripturl: [{who, offsetMs, text}]
 let T = I18N[cfg.uiLang] || I18N.da;
+let lastSummaryText = ""; // plain text mirror of #summaryOut, for the Copy button (HTML is rendered markdown)
 
 /* ---------------- system log ---------------- */
 const LOGBUF = [];
@@ -110,13 +113,21 @@ function applyLang() {
   setTxt("t-lbl-action", T.lblAction);
   setTxt("t-hint-action", T.hintAction);
   setTxt("t-lbl-autostart", T.lblAutoStart);
+  setTxt("t-lbl-autowrapup", T.lblAutoWrapup);
+  setTxt("t-hint-autowrapup", T.hintAutoWrapup);
   setTxt("t-lbl-ollama", T.lblOllama);
+  setTxt("t-leg-transcript", T.legTranscript);
+  setTxt("t-lbl-whisper", T.lblWhisper);
+  setTxt("t-hint-whisper", T.hintWhisper);
+  setTxt("t-lbl-whisperch0", T.lblWhisperCh0);
+  if ($("whisperCh0Role")) { $("whisperCh0Role").options[0].text = T.customer; $("whisperCh0Role").options[1].text = T.agent; }
   setTxt("t-hint-ollama", T.hintOllama);
   setTxt("btnCompare", T.compare);
   setTxt("t-leg-ui", T.legUI);
   setTxt("t-lbl-uilang", T.lblUiLang);
   setTxt("authPill", token ? T.authOk : T.authNo);
   if ($("authPill")) $("authPill").className = "pill " + (token ? "auth-ok" : "auth-no");
+  if ($("authSettingsWrap")) $("authSettingsWrap").hidden = !!token;
 }
 
 function msg(kind, text, sticky) {
@@ -281,6 +292,7 @@ async function startLive(auto) {
       log("info", "SESSION_ENDED received — transcription session over");
       msg("info", T.liveEnded, true);
       stopLive(true);
+      if (cfg.autoWrapup) autoSummarizeAndWrapup();
       return;
     }
     (body.transcripts || []).forEach(t => {
@@ -320,6 +332,7 @@ function stopLive(silent) {
 async function fetchTranscript() {
   if (!token) { msg("warn", T.needAuth); return; }
   if (!conversationId) { msg("warn", T.needConv); return; }
+  if (cfg.whisperUrl) { return fetchTranscriptWhisper(); }
   msg("info", T.fetching, true);
   try {
     const conv = await gc(`/api/v2/conversations/${conversationId}`);
@@ -350,6 +363,56 @@ async function fetchTranscript() {
     log("info", `Transcript fetched: ${fetchedPhrases.length} phrases`);
     msg("info", `OK — ${fetchedPhrases.length} phrases.`);
   } catch (e) { msg("err", T.errGeneric + e.message, true); }
+}
+
+/* ---------------- fetch transcript via local Whisper (alternative to Genesys transcripturl) ----------------
+   Downloads the call recording via the Genesys recording API and sends
+   each audio channel to a locally-running whisper.cpp-based server.
+   Contract expected from the local server:
+     POST {whisperUrl}/transcribe   (multipart/form-data: channel<N> files, conversationId)
+     -> { "utterances": [{ "channel": 0|1, "offsetMs": number, "text": string }, ...] }
+   Genesys does not guarantee which channel is customer vs. agent, so the
+   mapping is configurable under Opsætning ("Kanal 0 er"). */
+function whisperRoleForChannel(ch) {
+  const zeroIsCustomer = cfg.whisperCh0Role !== "agent";
+  const isCh0 = Number(ch) === 0;
+  return isCh0 === zeroIsCustomer ? "customer" : "agent";
+}
+async function fetchTranscriptWhisper() {
+  msg("info", T.fetching, true);
+  log("info", "Henter transskription via lokal Whisper: " + cfg.whisperUrl);
+  try {
+    const recs = await gc(`/api/v2/conversations/${conversationId}/recordings?formatId=WAV&maxWaitMs=20000`);
+    if (!Array.isArray(recs) || !recs.length) { msg("warn", T.fetchNone); return; }
+    const channels = [];
+    recs.forEach(rec => {
+      const uris = rec.mediaUris || {};
+      Object.keys(uris).forEach(ch => { if (uris[ch] && uris[ch].mediaUri) channels.push({ ch: Number(ch) || 0, uri: uris[ch].mediaUri }); });
+    });
+    if (!channels.length) { msg("warn", T.fetchNone); return; }
+    log("info", `Downloading ${channels.length} audio channel(s) for Whisper`);
+    const blobs = await Promise.all(channels.map(c => fetch(c.uri).then(r => { if (!r.ok) throw new Error("Recording download " + r.status); return r.blob(); })));
+    const fd = new FormData();
+    channels.forEach((c, i) => fd.append("channel" + c.ch, blobs[i], `channel${c.ch}.wav`));
+    fd.append("conversationId", conversationId);
+    let r;
+    try {
+      r = await fetch(cfg.whisperUrl.replace(/\/$/, "") + "/transcribe", { method: "POST", body: fd });
+    } catch (e) {
+      throw new Error("Whisper-server ikke nået (" + e.message + ") — tjek URL, at serveren kører, og CORS.");
+    }
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || ("Whisper " + r.status));
+    fetchedPhrases = (d.utterances || [])
+      .map(u => ({ who: whisperRoleForChannel(u.channel), offsetMs: u.offsetMs || 0, text: u.text || "" }))
+      .filter(p => p.text);
+    renderStream();
+    log("info", `Whisper-transskription hentet: ${fetchedPhrases.length} fraser`);
+    msg("info", `OK — ${fetchedPhrases.length} fraser (Whisper).`);
+  } catch (e) {
+    log("err", "Whisper fetch error: " + e.message);
+    msg("err", T.errGeneric + e.message, true);
+  }
 }
 
 /* ---------------- transcript rendering / assembly ---------------- */
@@ -384,6 +447,36 @@ function transcriptAsText() {
 
 function escapeHtml(s) {
   return s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+/* Minimal markdown renderer for AI summary output — handles the subset
+   models actually produce (bold, bullet/numbered lists, paragraphs).
+   No external dependency, per project convention. Input is escaped
+   first, so this is safe against HTML injection from the AI response. */
+function mdToHtml(text) {
+  const s = escapeHtml(text || "");
+  const lines = s.split(/\r?\n/);
+  let html = "", listType = null;
+  const closeList = () => { if (listType) { html += `</${listType}>`; listType = null; } };
+  lines.forEach(raw => {
+    const line = raw.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+    const bullet = line.match(/^\s*[-*]\s+(.*)/);
+    const numbered = line.match(/^\s*\d+[.)]\s+(.*)/);
+    if (bullet) {
+      if (listType !== "ul") { closeList(); html += "<ul>"; listType = "ul"; }
+      html += `<li>${bullet[1]}</li>`;
+    } else if (numbered) {
+      if (listType !== "ol") { closeList(); html += "<ol>"; listType = "ol"; }
+      html += `<li>${numbered[1]}</li>`;
+    } else if (line.trim() === "") {
+      closeList();
+    } else {
+      closeList();
+      html += `<p>${line}</p>`;
+    }
+  });
+  closeList();
+  return html;
 }
 
 /* ---------------- AI summary ---------------- */
@@ -520,10 +613,14 @@ async function summarize() {
   const btn = $("btnSummarize");
   btn.disabled = true;
   btn.innerHTML = `<span class="spin"></span>${T.summarizing}`;
+  setTxt("t-sum-timing", "");
   try {
     const res = await callProvider(provider, buildPrompt(transcript));
-    $("summaryOut").textContent = res.text;
-    msg("info", `${PROVIDER_NAME[provider]} · ${(res.ms / 1000).toFixed(1)}s`);
+    lastSummaryText = res.text;
+    $("summaryOut").innerHTML = mdToHtml(res.text);
+    const timing = `${PROVIDER_NAME[provider]} · model ${cfg["model" + provider[0].toUpperCase() + provider.slice(1)] || provider} · ${(res.ms / 1000).toFixed(1)}s`;
+    setTxt("t-sum-timing", timing);
+    msg("info", timing);
   } catch (e) {
     log("err", `AI error (${provider}): ${e.message}`);
     msg("err", T.errGeneric + e.message, true);
@@ -548,14 +645,68 @@ async function compareProviders() {
   outEl.textContent = "";
   const results = await Promise.allSettled(provs.map(p => callProvider(p, prompt)));
   results.forEach((r, i) => { if (r.status === "rejected") log("err", `AI error (${provs[i]}): ${r.reason.message}`); });
-  outEl.textContent = results.map((r, i) => {
-    const head = `━━━ ${PROVIDER_NAME[provs[i]]}` +
-      (r.status === "fulfilled" ? ` · ${(r.value.ms / 1000).toFixed(1)}s` : "") + ` ━━━`;
-    const body = r.status === "fulfilled" ? r.value.text : (T.errGeneric + r.reason.message);
-    return head + "\n" + body;
-  }).join("\n\n");
+  lastSummaryText = results.map((r, i) =>
+    `${PROVIDER_NAME[provs[i]]}${r.status === "fulfilled" ? " (" + (r.value.ms / 1000).toFixed(1) + "s)" : ""}:\n${r.status === "fulfilled" ? r.value.text : (T.errGeneric + r.reason.message)}`
+  ).join("\n\n");
+  outEl.innerHTML = results.map((r, i) => {
+    const head = `<h4>${PROVIDER_NAME[provs[i]]}` +
+      (r.status === "fulfilled" ? ` · ${(r.value.ms / 1000).toFixed(1)}s` : "") + `</h4>`;
+    const body = r.status === "fulfilled" ? mdToHtml(r.value.text) : `<p>${escapeHtml(T.errGeneric + r.reason.message)}</p>`;
+    return head + body;
+  }).join("");
+  setTxt("t-sum-timing", "");
   btn.disabled = false;
   btn.textContent = T.compare;
+}
+
+/* ---------------- auto summary + auto wrap-up (opt-in) ----------------
+   Triggered by SESSION_ENDED, i.e. the instant the call ends — well
+   before the agent clicks Done — so the AI call gets the whole ACW
+   window instead of only the last few seconds. If it finishes before
+   the iframe is torn down (agent clicks Done / ACW timeout), the result
+   is written straight into Genesys' own wrap-up notes via the
+   Conversations API, using the agent's own token/permissions. This does
+   NOT survive the widget actually being closed — that requires a
+   server-side flow independent of the browser (see README). */
+async function autoSummarizeAndWrapup() {
+  const transcript = transcriptAsText();
+  if (!transcript) { log("warn", "Auto-resumé: intet transskript endnu, springer over."); return; }
+  const provider = ($("provider") && $("provider").value) || cfg.provider;
+  if (!providerAvailable(provider)) { log("warn", "Auto-resumé: ingen AI-udbyder konfigureret, springer over."); return; }
+  const convIdAtStart = conversationId;
+  log("info", "Auto-resumé startet ved SESSION_ENDED (afventer ikke agentens klik)…");
+  try {
+    const res = await callProvider(provider, buildPrompt(transcript));
+    lastSummaryText = res.text;
+    $("summaryOut").innerHTML = mdToHtml(res.text);
+    const timing = `${PROVIDER_NAME[provider]} · ${(res.ms / 1000).toFixed(1)}s (auto)`;
+    setTxt("t-sum-timing", timing);
+    log("info", `Auto-resumé færdigt (${timing})`);
+    if (convIdAtStart !== conversationId) {
+      log("warn", "Auto-resumé: conversationId ændrede sig undervejs — springer wrap-up-indsættelse over for at undgå at skrive på forkert samtale.");
+      return;
+    }
+    await writeWrapupNotes(convIdAtStart, res.text);
+  } catch (e) {
+    log("err", "Auto-resumé fejlede: " + e.message);
+  }
+}
+
+async function writeWrapupNotes(convId, text) {
+  if (!token) { log("warn", "Auto-resumé: ikke logget ind, kan ikke skrive wrap-up."); return; }
+  try {
+    const conv = await gc(`/api/v2/conversations/${convId}`);
+    const me = (conv.participants || []).find(p => p.purpose === "agent");
+    if (!me) { log("warn", "Auto-resumé: fandt ingen agent-deltager at skrive wrap-up på."); return; }
+    await gc(`/api/v2/conversations/calls/${convId}/participants/${me.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ wrapup: { notes: text } })
+    });
+    log("info", "Resumé skrevet til wrap-up notes automatisk.");
+    msg("info", "Resumé indsat automatisk i wrap-up.");
+  } catch (e) {
+    log("err", "Kunne ikke skrive wrap-up notes: " + e.message + " — nogle køer kræver muligvis også en wrapup-kode for at acceptere notes; tjek Log-fanen for statuskoden.");
+  }
 }
 
 /* ---------------- clipboard ---------------- */
@@ -582,8 +733,11 @@ function loadForm() {
   $("keyClaude").value = cfg.keyClaude; $("modelClaude").value = cfg.modelClaude;
   $("ollamaUrl").value = cfg.ollamaUrl; $("modelOllama").value = cfg.modelOllama;
   $("proxyUrl").value = cfg.proxyUrl;
+  $("whisperUrl").value = cfg.whisperUrl;
+  $("whisperCh0Role").value = cfg.whisperCh0Role;
   $("gcActionId").value = cfg.gcActionId;
   $("autoStart").checked = !!cfg.autoStart;
+  $("autoWrapup").checked = !!cfg.autoWrapup;
   $("focusPoints").value = cfg.focusPoints;
   $("convId").value = conversationId;
 }
@@ -600,8 +754,11 @@ function saveForm() {
   cfg.keyClaude = $("keyClaude").value.trim(); cfg.modelClaude = $("modelClaude").value.trim() || defaults.modelClaude;
   cfg.ollamaUrl = $("ollamaUrl").value.trim(); cfg.modelOllama = $("modelOllama").value.trim() || defaults.modelOllama;
   cfg.proxyUrl = $("proxyUrl").value.trim();
+  cfg.whisperUrl = $("whisperUrl").value.trim();
+  cfg.whisperCh0Role = $("whisperCh0Role").value;
   cfg.gcActionId = $("gcActionId").value.trim();
   cfg.autoStart = $("autoStart").checked;
+  cfg.autoWrapup = $("autoWrapup").checked;
   cfg.focusPoints = $("focusPoints").value;
   if ($("convId").value.trim() && !$("convId").value.includes("{{")) conversationId = $("convId").value.trim();
   localStorage.setItem(LS, JSON.stringify(cfg));
@@ -622,7 +779,7 @@ async function init() {
   const lang = (q.get("langTag") || q.get("gcLangTag") || "").slice(0, 2).toLowerCase();
   if (lang && I18N[lang] && !localStorage.getItem(LS)) { cfg.uiLang = lang; cfg.sumLang = lang; }
 
-  log("info", `Widget start v1.4.3 · region=${cfg.region} · authType=${cfg.authType} · conversationId=${conversationId || "(none)"}`);
+  log("info", `Widget start v1.5.2 · region=${cfg.region} · authType=${cfg.authType} · conversationId=${conversationId || "(none)"}`);
   log("info", "URL query: " + (location.search || "(empty)"));
   await handleAuthReturn();
   loadForm();
@@ -652,7 +809,7 @@ async function init() {
   $("btnClear").addEventListener("click", () => { utterances.clear(); fetchedPhrases = []; renderStream(); });
   $("btnSummarize").addEventListener("click", summarize);
   $("btnCompare").addEventListener("click", compareProviders);
-  $("btnCopyS").addEventListener("click", () => copyText($("summaryOut").textContent));
+  $("btnCopyS").addEventListener("click", () => copyText(lastSummaryText));
   $("btnLogin").addEventListener("click", login);
   $("btnLogout").addEventListener("click", logout);
   $("btnSave").addEventListener("click", () => {

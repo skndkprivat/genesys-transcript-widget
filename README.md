@@ -179,3 +179,27 @@ Nyt afsnit 8 + Fig. 5 i `SYSTEM.html`: forskellen på Genesys' native MCP (Copil
 
 ### v1.4.3 — Log-persistens i localStorage
 Hele loggen spejles nu løbende til `localStorage` (nøgle `gcTranscriptWidgetLog`, overskrives pr. session) og overlever dermed at iframen lukkes uden at agenten når at klikke "Gem log" — fx ved en ACW-timeout, mens AI-resuméet stadig kører. Log-fanen viser automatisk en knap **"Hent forrige log"**, hvis der findes en gemt session fra sidste gang widget'en kørte i samme browser; den downloader den fulde forrige log som tekstfil. "Ryd"-knappen rydder både den aktuelle visning og den gemte kopi. Se afsnittet "Se efterfølgende om AI-resuméet nåede at blive færdigt" ovenfor for brug og begrænsninger (kun seneste session, delt maskine = delt log).
+
+### v1.5.0 — Lokal Whisper som alternativ transskriptionskilde (Hent)
+Ny indstilling under Opsætning: **"Lokal Whisper-server URL"**. Er den sat, bruger **"Hent transskription"** ikke længere Genesys' `transcripturl` — i stedet:
+1. Widget'en henter optagelsen via `GET /api/v2/conversations/{conversationId}/recordings?formatId=WAV&maxWaitMs=20000` (kræver `recording:recording:view`).
+2. Hver lydkanal i `mediaUris` downloades og sendes som multipart/form-data (`channel0`, `channel1` … + `conversationId`) til `POST {whisperUrl}/transcribe` på din lokale whisper.cpp-baserede server.
+3. Serveren skal svare: `{ "utterances": [{ "channel": 0|1, "offsetMs": number, "text": string }, …] }`.
+
+**Kanal → kunde/agent er ikke garanteret af Genesys' API** og kan varier fra org til org — indstil det korrekt under **"Kanal 0 er"** (Kunde/Agent) i Opsætning; byt om, hvis resuméerne blander agent og kunde sammen.
+
+Kræver at din whisper-server har CORS åbnet for widget-domænet (samme princip som `OLLAMA_ORIGINS` for Ollama). Fejler downloadet af selve optagelsen (`Genesys 403/404` i Log-fanen), er optagelsen enten ikke aktiveret på samtalen, eller `recording:recording:view` mangler på agent-rollen.
+
+### v1.5.1 — Resumé-tid, skjulte auth-felter, formateret resumé
+- **Tidsforbrug ved "Generér resumé"** vises nu permanent under selve resuméet (`<udbyder> · model <navn> · N,Ns`), ikke kun som en besked der forsvinder efter 6 sek.
+- **Region, Grant Type og OAuth Client ID skjules** under Opsætning, så snart agenten er logget ind — mindre på skærmen under en samtale. Felterne vises igen automatisk efter **Log ud**. Conversation ID, autostart og login/logout-knapperne forbliver altid synlige.
+- **Resuméet renderes nu som formateret tekst** i stedet for rå markdown — `**fed**`, nummererede lister og punktlister vises korrekt (fed skrift, rigtige lister) både ved almindeligt resumé og ved Sammenlign udbydere. "Kopiér resumé" kopierer stadig ren tekst (uden `**`/`#`), så det er klar til at sætte ind i wrap-up-noter.
+
+### v1.5.2 — Automatisk resumé + auto-indsættelse i wrap-up (valgfri)
+Ny indstilling: **"Generér resumé automatisk og indsæt i wrap-up notes, når samtalen slutter"** (default fra). Er den slået til:
+1. Resumé-generering starter automatisk ved `SESSION_ENDED` (i samme sekund samtalen slutter) — før agenten overhovedet klikker noget — så AI-kaldet får hele ACW-vinduet i stedet for kun de sidste sekunder.
+2. Når resuméet er færdigt, skrives det automatisk ind i Genesys' egne wrap-up notes via `PATCH /api/v2/conversations/calls/{conversationId}/participants/{participantId}` med `{"wrapup":{"notes": "..."}}` — agenten skal ikke selv kopiere/indsætte noget.
+
+**Vigtig begrænsning:** virker kun hvis AI-kaldet når at blive færdigt, før agenten trykker Done / widget-iframen bliver lukket af Genesys — browseren afbryder alt JavaScript i samme øjeblik iframen fjernes fra DOM'en, så der findes ikke en måde at "holde processen kørende" bagefter. En 100%-garanti, uanset hvor sent agenten er færdig, kræver et **server-side flow** uafhængigt af agentens browser (fx et Architect-flow/webhook, der selv henter transskriptionen og skriver resuméet — en større arkitekturudvidelse, ikke bygget endnu).
+
+Andre forbehold: bruger agentens eget token/permissions (samme som når agenten selv indsender wrap-up manuelt); nogle køer kan være konfigureret til at kræve en wrapup-kode for at acceptere notes — tjek Log-fanen for statuskoden, hvis skrivningen fejler.

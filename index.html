@@ -84,9 +84,15 @@
   .keyrow input{flex:1}
   .keyrow button{flex:none}
   #summaryOut{
-    white-space:pre-wrap; background:var(--surface); border:1px solid var(--line);
+    background:var(--surface); border:1px solid var(--line);
     border-radius:var(--radius); padding:12px; min-height:120px; font-size:13px;
   }
+  #summaryOut p{margin:0 0 8px}
+  #summaryOut p:last-child{margin-bottom:0}
+  #summaryOut ul,#summaryOut ol{margin:0 0 8px 20px}
+  #summaryOut li{margin-bottom:3px}
+  #summaryOut h4{font-size:11px; color:var(--ink-soft); font-family:var(--mono); margin:14px 0 6px; letter-spacing:.3px}
+  #summaryOut h4:first-child{margin-top:0}
   #summaryOut:empty::before{content:attr(data-empty); color:var(--ink-soft); font-size:12.5px}
   .spin{display:inline-block; width:13px; height:13px; border:2px solid #fff; border-top-color:transparent; border-radius:50%; animation:rot .8s linear infinite; vertical-align:-2px; margin-right:6px}
   @keyframes rot{to{transform:rotate(360deg)}}
@@ -152,6 +158,7 @@
       <button class="btn secondary" id="btnCopyS"></button>
     </div>
     <div id="summaryOut" data-empty=""></div>
+    <p class="hint" id="t-sum-timing"></p>
   </section>
 
   <!-- LOG TAB -->
@@ -169,34 +176,53 @@
   <section id="tab-settings" class="tab">
     <fieldset>
       <legend id="t-leg-genesys">Genesys Cloud</legend>
-      <label id="t-lbl-region" for="region"></label>
-      <select id="region">
-        <option value="mypurecloud.de">EU Central (mypurecloud.de)</option>
-        <option value="mypurecloud.ie">EU West / Ireland (mypurecloud.ie)</option>
-        <option value="euw2.pure.cloud">EU West 2 / London (euw2.pure.cloud)</option>
-        <option value="euc2.pure.cloud">EU Central 2 / Zürich (euc2.pure.cloud)</option>
-        <option value="mypurecloud.com">US East (mypurecloud.com)</option>
-        <option value="usw2.pure.cloud">US West (usw2.pure.cloud)</option>
-        <option value="cac1.pure.cloud">Canada (cac1.pure.cloud)</option>
-        <option value="aps1.pure.cloud">Asia Pacific (aps1.pure.cloud)</option>
-      </select>
-      <label id="t-lbl-grant" for="authType"></label>
-      <select id="authType">
-        <option value="pkce">Code Authorization / PKCE</option>
-        <option value="implicit">Token Implicit Grant (Browser)</option>
-      </select>
-      <label id="t-lbl-clientid" for="clientId"></label>
-      <input type="text" id="clientId" autocomplete="off" spellcheck="false">
+      <div id="authSettingsWrap">
+        <label id="t-lbl-region" for="region"></label>
+        <select id="region">
+          <option value="mypurecloud.de">EU Central (mypurecloud.de)</option>
+          <option value="mypurecloud.ie">EU West / Ireland (mypurecloud.ie)</option>
+          <option value="euw2.pure.cloud">EU West 2 / London (euw2.pure.cloud)</option>
+          <option value="euc2.pure.cloud">EU Central 2 / Zürich (euc2.pure.cloud)</option>
+          <option value="mypurecloud.com">US East (mypurecloud.com)</option>
+          <option value="usw2.pure.cloud">US West (usw2.pure.cloud)</option>
+          <option value="cac1.pure.cloud">Canada (cac1.pure.cloud)</option>
+          <option value="aps1.pure.cloud">Asia Pacific (aps1.pure.cloud)</option>
+        </select>
+        <label id="t-lbl-grant" for="authType"></label>
+        <select id="authType">
+          <option value="pkce">Code Authorization / PKCE</option>
+          <option value="implicit">Token Implicit Grant (Browser)</option>
+        </select>
+        <label id="t-lbl-clientid" for="clientId"></label>
+        <input type="text" id="clientId" autocomplete="off" spellcheck="false">
+      </div>
       <label id="t-lbl-convid" for="convId"></label>
       <input type="text" id="convId" autocomplete="off" spellcheck="false" placeholder="{{gcConversationId}}">
       <div class="row" style="margin-top:10px">
         <input type="checkbox" id="autoStart" checked style="width:auto">
         <label id="t-lbl-autostart" for="autoStart" style="margin:0; font-weight:600"></label>
       </div>
+      <div class="row" style="margin-top:4px">
+        <input type="checkbox" id="autoWrapup" style="width:auto">
+        <label id="t-lbl-autowrapup" for="autoWrapup" style="margin:0; font-weight:600"></label>
+      </div>
+      <p class="hint" id="t-hint-autowrapup"></p>
       <div class="row" style="margin-top:10px">
         <button class="btn" id="btnLogin"></button>
         <button class="btn secondary" id="btnLogout"></button>
       </div>
+    </fieldset>
+
+    <fieldset>
+      <legend id="t-leg-transcript">Transskription (Hent)</legend>
+      <label id="t-lbl-whisper" for="whisperUrl"></label>
+      <input type="text" id="whisperUrl" autocomplete="off" spellcheck="false" placeholder="http://localhost:8080">
+      <p class="hint" id="t-hint-whisper"></p>
+      <label id="t-lbl-whisperch0" for="whisperCh0Role"></label>
+      <select id="whisperCh0Role">
+        <option value="customer">Kunde</option>
+        <option value="agent">Agent</option>
+      </select>
     </fieldset>
 
     <fieldset>
@@ -243,7 +269,7 @@
     </fieldset>
 
     <div class="row"><button class="btn" id="btnSave"></button></div>
-    <p class="footer-note" id="verNote">Genesys Transcript &amp; Summary Widget v1.4.3</p>
+    <p class="footer-note" id="verNote">Genesys Transcript &amp; Summary Widget v1.5.2</p>
   </section>
 </main>
 
@@ -296,6 +322,12 @@ const I18N = {
     lblProxy:"Proxy-URL (valgfri)",
     hintProxy:"Er en proxy-URL sat, sendes AI-kaldet via proxyen. Har proxyen sin egen API-nøgle (server-side), bruges DEN — nøglerne herover ignoreres og fungerer kun som fallback.",
     lblAutoStart:"Start realtidstransskription automatisk (agenten skal intet gøre)",
+    lblAutoWrapup:"Generér resumé automatisk og indsæt i wrap-up notes, når samtalen slutter",
+    hintAutoWrapup:"Starter AI-resuméet i samme sekund samtalen slutter (før Done klikkes) og skriver det direkte i Genesys' egne wrap-up notes via API, når det er færdigt. Virker kun hvis kaldet når at blive færdigt før agenten trykker Done — overlever ikke at widget'en reelt lukkes. Skriver direkte i den rigtige samtales wrap-up-data.",
+    legTranscript:"Transskription (Hent)",
+    lblWhisper:"Lokal Whisper-server URL (valgfri — alternativ til Genesys' egen transskription ved Hent)",
+    hintWhisper:"Er en URL sat, downloader widget'en optagelsen fra Genesys og sender den til din lokale whisper.cpp-server i stedet for at bruge Genesys' transcripturl. Kræver recording:recording:view samt CORS åbnet på din whisper-server for widget-domænet.",
+    lblWhisperCh0:"Kanal 0 er",
     compare:"Sammenlign udbydere",
     comparing:"Sammenligner…",
     lblOllama:"Ollama URL / model (lokal, gratis, data forlader ikke maskinen)",
@@ -345,6 +377,12 @@ const I18N = {
     lblProxy:"Proxy URL (optional)",
     hintProxy:"If a proxy URL is set, AI calls go through the proxy. If the proxy has its own server-side API key, THAT key is used — the keys above are ignored and only act as fallback.",
     lblAutoStart:"Start realtime transcription automatically (no agent action needed)",
+    lblAutoWrapup:"Auto-generate summary and insert into wrap-up notes when the call ends",
+    hintAutoWrapup:"Starts the AI summary the instant the call ends (before Done is clicked) and writes it straight into Genesys' own wrap-up notes via API once done. Only works if the call finishes before the agent clicks Done — does not survive the widget actually being closed. Writes directly into the real conversation's wrap-up data.",
+    legTranscript:"Transcript (Fetch)",
+    lblWhisper:"Local Whisper server URL (optional — alternative to Genesys' own Fetch transcript)",
+    hintWhisper:"If a URL is set, the widget downloads the recording from Genesys and sends it to your local whisper.cpp server instead of using Genesys' transcripturl. Requires recording:recording:view and CORS opened on your Whisper server for the widget domain.",
+    lblWhisperCh0:"Channel 0 is",
     compare:"Compare providers",
     comparing:"Comparing…",
     lblOllama:"Ollama URL / model (local, free, data never leaves the machine)",
@@ -394,6 +432,12 @@ const I18N = {
     lblProxy:"URL du proxy (optionnel)",
     hintProxy:"Si une URL de proxy est définie, les appels IA passent par le proxy. Si le proxy possède sa propre clé API (côté serveur), c\u2019est elle qui est utilisée — les clés ci-dessus sont ignorées et ne servent que de secours.",
     lblAutoStart:"Démarrer automatiquement la transcription temps réel (aucune action de l\u2019agent)",
+    lblAutoWrapup:"Générer le résumé automatiquement et l'insérer dans les notes de wrap-up à la fin de l'appel",
+    hintAutoWrapup:"Démarre le résumé IA dès la fin de l'appel (avant de cliquer sur Done) et l'écrit directement dans les notes de wrap-up de Genesys via l'API une fois terminé. Ne fonctionne que si l'appel se termine avant que l'agent clique sur Done — ne survit pas à la fermeture réelle du widget. Écrit directement dans les données de wrap-up de la vraie conversation.",
+    legTranscript:"Transcription (Récupérer)",
+    lblWhisper:"URL du serveur Whisper local (optionnel — alternative à la transcription de Genesys)",
+    hintWhisper:"Si une URL est définie, le widget télécharge l'enregistrement depuis Genesys et l'envoie à votre serveur whisper.cpp local au lieu d'utiliser le transcripturl de Genesys. Nécessite recording:recording:view et CORS ouvert sur votre serveur Whisper pour le domaine du widget.",
+    lblWhisperCh0:"Le canal 0 est",
     compare:"Comparer les fournisseurs",
     comparing:"Comparaison…",
     lblOllama:"URL / modèle Ollama (local, gratuit, les données ne quittent pas la machine)",
@@ -443,6 +487,12 @@ const I18N = {
     lblProxy:"Proxy-URL (optional)",
     hintProxy:"Ist eine Proxy-URL gesetzt, laufen KI-Aufrufe über den Proxy. Hat der Proxy einen eigenen serverseitigen API-Schlüssel, wird DIESER verwendet — die Schlüssel oben werden ignoriert und dienen nur als Fallback.",
     lblAutoStart:"Echtzeit-Transkription automatisch starten (keine Aktion des Agenten nötig)",
+    lblAutoWrapup:"Zusammenfassung automatisch erstellen und in die Wrap-up-Notizen einfügen, wenn das Gespräch endet",
+    hintAutoWrapup:"Startet die KI-Zusammenfassung in dem Moment, in dem das Gespräch endet (vor dem Klick auf Done), und schreibt sie nach Fertigstellung direkt über die API in Genesys' eigene Wrap-up-Notizen. Funktioniert nur, wenn der Aufruf fertig wird, bevor der Agent auf Done klickt — überlebt nicht das tatsächliche Schließen des Widgets. Schreibt direkt in die Wrap-up-Daten der echten Konversation.",
+    legTranscript:"Transkript (Abrufen)",
+    lblWhisper:"Lokale Whisper-Server-URL (optional — Alternative zur eigenen Transkription von Genesys)",
+    hintWhisper:"Ist eine URL gesetzt, lädt das Widget die Aufzeichnung von Genesys herunter und sendet sie an Ihren lokalen whisper.cpp-Server anstatt Genesys' transcripturl zu verwenden. Erfordert recording:recording:view sowie geöffnetes CORS auf Ihrem Whisper-Server für die Widget-Domain.",
+    lblWhisperCh0:"Kanal 0 ist",
     compare:"Anbieter vergleichen",
     comparing:"Vergleiche…",
     lblOllama:"Ollama-URL / Modell (lokal, kostenlos, Daten verlassen die Maschine nicht)",
