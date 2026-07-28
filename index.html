@@ -177,6 +177,12 @@
     </div>
     <p class="hint" id="debugFileStatus"></p>
     <p class="hint" id="t-hint-debugfile"></p>
+    <div class="row">
+      <button class="btn secondary" id="btnStatsShow"></button>
+      <button class="btn secondary" id="btnStatsExport"></button>
+      <button class="btn secondary" id="btnStatsClear"></button>
+    </div>
+    <p class="hint" id="t-hint-stats"></p>
     <div id="logView"></div>
   </section>
 
@@ -292,7 +298,7 @@
     </fieldset>
 
     <div class="row"><button class="btn" id="btnSave"></button></div>
-    <p class="footer-note" id="verNote">Genesys Transcript &amp; Summary Widget v1.6.1</p>
+    <p class="footer-note" id="verNote">Genesys Transcript &amp; Summary Widget v1.7.0</p>
   </section>
 </main>
 
@@ -372,6 +378,12 @@ const I18N = {
     debugUnsupported:"Fil-log understøttes ikke i denne browser (kræver Chrome eller Edge).",
     debugBlockedIframe:"Fil-log er ikke tilgængelig her — Chrome/Edge blokerer filvalg inde i en indlejret iframe fra et andet domæne (bekræftet i test i selve Genesys-widget'en). Brug i stedet \"Hent forrige log\" — den virker fint her.",
     hintDebugFile:"Skriver hver logline direkte til en fil på din pc, i samme sekund den sker — så selv hvis widget'en lukkes midt i en generering, ligger det, der nåede at ske, allerede på disken. Første gang skal du vælge/oprette filen (ét klik); herefter genoptages fil-loggen automatisk ved næste samtale, så længe browseren stadig tillader det. Kun Chrome/Edge — og kan være blokeret af Genesys' egen widget-indlejring; test det før I stoler på det.",
+    statsShow:"Vis statistik i log",
+    statsExport:"Eksportér statistik (CSV)",
+    statsClear:"Ryd statistik",
+    statsEmpty:"Ingen statistik registreret endnu — generér mindst ét resumé først.",
+    statsShown:"Statistik-oversigt vist i Log-fanen.",
+    hintStats:"Hvert AI-kald (manuelt, automatisk og hver enkelt udbyder i Sammenlign) logges struktureret her: udbyder, model, vej, tid i ms, succes/fejl. Gemmes i denne browsers localStorage — altså pr. maskine, ikke centralt på tværs af agenter. Eksportér som CSV og åbn i Excel for at sammenligne udbydere på tid/pris.",
     ollamaCors:"Ollama kunne ikke nås fra browseren. Tjek: 1) kører Ollama? 2) er OLLAMA_ORIGINS sat til widget-origin (https://skndkprivat.github.io) eller *, og er Ollama genstartet bagefter? 3) er URL\u2019en korrekt?",
     alreadyGenerating:"Der kører allerede en resumé-generering (måske automatisk) — vent til den er færdig.",
     alreadySummarized:"Resuméet er allerede genereret for denne transskription — ingen ændringer siden.",
@@ -439,6 +451,12 @@ const I18N = {
     debugUnsupported:"File log is not supported in this browser (requires Chrome or Edge).",
     debugBlockedIframe:"File log is not available here — Chrome/Edge blocks the file picker inside a cross-origin embedded iframe (confirmed in a live test inside the Genesys widget). Use \"Download previous log\" instead — that works fine here.",
     hintDebugFile:"Writes every log line straight to a file on your PC, the instant it happens — so even if the widget is closed mid-generation, whatever happened is already on disk. First time, you pick/create the file (one click); after that, the file log resumes automatically on the next call, as long as the browser still grants permission. Chrome/Edge only — and may be blocked by Genesys' own widget embedding; test it before relying on it.",
+    statsShow:"Show stats in log",
+    statsExport:"Export stats (CSV)",
+    statsClear:"Clear stats",
+    statsEmpty:"No stats recorded yet — generate at least one summary first.",
+    statsShown:"Stats overview shown in the Log tab.",
+    hintStats:"Every AI call (manual, automatic, and each provider in Compare) is logged here in a structured way: provider, model, path, time in ms, success/failure. Stored in this browser's localStorage — i.e. per machine, not centrally across agents. Export as CSV and open in Excel to compare providers on time/cost.",
     ollamaCors:"Ollama could not be reached from the browser. Check: 1) is Ollama running? 2) is OLLAMA_ORIGINS set to the widget origin (or *) and was Ollama restarted afterwards? 3) is the URL correct?",
     alreadyGenerating:"A summary generation is already running (maybe automatic) — wait for it to finish.",
     alreadySummarized:"The summary has already been generated for this transcript — no changes since.",
@@ -506,6 +524,12 @@ const I18N = {
     debugUnsupported:"Le journal fichier n'est pas pris en charge dans ce navigateur (nécessite Chrome ou Edge).",
     debugBlockedIframe:"Le journal fichier n'est pas disponible ici — Chrome/Edge bloque le sélecteur de fichiers dans une iframe intégrée cross-origin (confirmé lors d'un test dans le widget Genesys). Utilisez plutôt \"Télécharger le journal précédent\" — ça fonctionne bien ici.",
     hintDebugFile:"Écrit chaque ligne de journal directement dans un fichier sur votre PC, à l'instant où elle se produit — donc même si le widget est fermé en pleine génération, ce qui s'est passé est déjà sur le disque. La première fois, vous choisissez/créez le fichier (un clic) ; ensuite, le journal fichier reprend automatiquement au prochain appel, tant que le navigateur accorde toujours la permission. Chrome/Edge uniquement — et peut être bloqué par l'intégration du widget de Genesys ; testez-le avant de vous y fier.",
+    statsShow:"Afficher les stats dans le journal",
+    statsExport:"Exporter les stats (CSV)",
+    statsClear:"Effacer les stats",
+    statsEmpty:"Aucune statistique enregistrée pour l'instant — générez d'abord au moins un résumé.",
+    statsShown:"Aperçu des statistiques affiché dans l'onglet Journal.",
+    hintStats:"Chaque appel IA (manuel, automatique et chaque fournisseur dans Comparer) est enregistré ici de manière structurée : fournisseur, modèle, chemin, temps en ms, succès/échec. Stocké dans le localStorage de ce navigateur — donc par machine, pas centralisé entre agents. Exportez en CSV et ouvrez dans Excel pour comparer les fournisseurs sur temps/coût.",
     ollamaCors:"Ollama est injoignable depuis le navigateur. Vérifiez : 1) Ollama est-il lancé ? 2) OLLAMA_ORIGINS est-il défini sur l\u2019origine du widget (ou *) avec redémarrage d\u2019Ollama ? 3) l\u2019URL est-elle correcte ?",
     alreadyGenerating:"Une génération de résumé est déjà en cours (peut-être automatique) — attendez qu'elle se termine.",
     alreadySummarized:"Le résumé a déjà été généré pour cette transcription — aucun changement depuis.",
@@ -573,6 +597,12 @@ const I18N = {
     debugUnsupported:"Datei-Protokoll wird in diesem Browser nicht unterstützt (erfordert Chrome oder Edge).",
     debugBlockedIframe:"Datei-Protokoll ist hier nicht verfügbar — Chrome/Edge blockiert die Dateiauswahl innerhalb eines eingebetteten Cross-Origin-iframes (in einem echten Test im Genesys-Widget bestätigt). Nutzen Sie stattdessen \"Vorheriges Protokoll herunterladen\" — das funktioniert hier problemlos.",
     hintDebugFile:"Schreibt jede Protokollzeile sofort in eine Datei auf Ihrem PC, in dem Moment, in dem sie passiert — selbst wenn das Widget mitten in einer Generierung geschlossen wird, ist das Geschehene bereits auf der Festplatte. Beim ersten Mal wählen/erstellen Sie die Datei (ein Klick); danach wird das Datei-Protokoll beim nächsten Anruf automatisch fortgesetzt, solange der Browser die Berechtigung weiterhin gewährt. Nur Chrome/Edge — und kann durch Genesys' eigene Widget-Einbettung blockiert werden; testen Sie es, bevor Sie sich darauf verlassen.",
+    statsShow:"Statistik im Protokoll anzeigen",
+    statsExport:"Statistik exportieren (CSV)",
+    statsClear:"Statistik löschen",
+    statsEmpty:"Noch keine Statistik erfasst — erstellen Sie zuerst mindestens eine Zusammenfassung.",
+    statsShown:"Statistikübersicht im Protokoll-Tab angezeigt.",
+    hintStats:"Jeder KI-Aufruf (manuell, automatisch und jeder Anbieter im Vergleich) wird hier strukturiert erfasst: Anbieter, Modell, Weg, Zeit in ms, Erfolg/Fehler. Gespeichert im localStorage dieses Browsers — also pro Maschine, nicht zentral über Agenten hinweg. Als CSV exportieren und in Excel öffnen, um Anbieter nach Zeit/Kosten zu vergleichen.",
     ollamaCors:"Ollama ist vom Browser aus nicht erreichbar. Prüfen Sie: 1) Läuft Ollama? 2) Ist OLLAMA_ORIGINS auf den Widget-Origin (oder *) gesetzt und wurde Ollama danach neu gestartet? 3) Stimmt die URL?",
     alreadyGenerating:"Es läuft bereits eine Zusammenfassungs-Generierung (möglicherweise automatisch) — bitte warten, bis sie fertig ist.",
     alreadySummarized:"Die Zusammenfassung wurde bereits für dieses Transkript erstellt — keine Änderungen seitdem.",

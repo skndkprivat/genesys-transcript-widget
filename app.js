@@ -36,6 +36,60 @@ let lastSummaryText = ""; // plain text mirror of #summaryOut, for the Copy butt
 let summarizing = false; // guards against manual + auto-wrapup firing concurrently (same transcript, duplicate AI call)
 let lastSummarizedTranscript = ""; // transcript text the summary currently shown was generated from — used to disable the button once it's redundant
 
+/* ---------------- generation statistics (for cost/time documentation) ----------------
+   Every AI call (manual, auto, and each leg of Compare) is logged here as a
+   structured record — provider, model, path, duration, success — separate
+   from the free-text system log, so it can be exported as CSV and analysed
+   (e.g. in Excel) to justify provider choice on cost vs. speed. Stored in
+   localStorage like the debug log; same caveat: per-browser only, not
+   centrally aggregated across agents. */
+const STATSLS = "gcTranscriptWidgetStats";
+let STATBUF = [];
+try { STATBUF = JSON.parse(localStorage.getItem(STATSLS) || "[]"); } catch (e) { STATBUF = []; }
+function recordStat(entry) {
+  STATBUF.push({ ts: new Date().toISOString(), conversationId, ...entry });
+  if (STATBUF.length > 1000) STATBUF.shift();
+  try { localStorage.setItem(STATSLS, JSON.stringify(STATBUF)); } catch (e) { /* storage full — stats just stop growing */ }
+}
+function statsToCsv() {
+  const header = ["timestamp", "conversationId", "trigger", "provider", "model", "via", "success", "ms", "seconds", "promptChars", "responseChars", "error"];
+  const esc = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const rows = STATBUF.map(s => [
+    s.ts, s.conversationId, s.trigger, s.provider, s.model, s.via, s.success,
+    s.ms ?? "", s.ms != null ? (s.ms / 1000).toFixed(1) : "", s.promptChars ?? "", s.responseChars ?? "", s.error ?? ""
+  ].map(esc).join(","));
+  return [header.join(","), ...rows].join("\n");
+}
+function exportStatsCsv() {
+  if (!STATBUF.length) { msg("warn", T.statsEmpty); return; }
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([statsToCsv()], { type: "text/csv" }));
+  a.download = "widget-stats-" + new Date().toISOString().slice(0, 10) + ".csv";
+  a.click(); URL.revokeObjectURL(a.href);
+}
+function showStatsSummary() {
+  if (!STATBUF.length) { msg("warn", T.statsEmpty); return; }
+  const byKey = {};
+  STATBUF.forEach(s => {
+    if (!s.success) return;
+    const key = `${s.provider}${s.model ? " (" + s.model + ")" : ""}`;
+    (byKey[key] = byKey[key] || []).push(s.ms);
+  });
+  const lines = Object.entries(byKey).map(([k, arr]) => {
+    const avg = arr.reduce((a, b) => a + b, 0) / arr.length;
+    const min = Math.min(...arr), max = Math.max(...arr);
+    return `${k}: n=${arr.length} · gns=${(avg / 1000).toFixed(1)}s · min=${(min / 1000).toFixed(1)}s · max=${(max / 1000).toFixed(1)}s`;
+  });
+  const failed = STATBUF.filter(s => !s.success).length;
+  log("info", "Statistik-oversigt (" + STATBUF.length + " kald i alt):\n" + lines.join("\n") + (failed ? `\n${failed} fejlede kald` : ""));
+  msg("info", T.statsShown);
+}
+function clearStats() {
+  STATBUF = [];
+  try { localStorage.removeItem(STATSLS); } catch (e) {}
+  log("info", "Statistik ryddet.");
+}
+
 /* ---------------- system log ---------------- */
 const LOGBUF = [];
 /* Snapshot of the PREVIOUS session's log, captured once at load time —
@@ -234,6 +288,10 @@ function applyLang() {
   setTxt("btnDebugResume", T.debugResume);
   setTxt("t-hint-debugfile", T.hintDebugFile);
   renderDebugStatus();
+  setTxt("btnStatsShow", T.statsShow);
+  setTxt("btnStatsExport", T.statsExport);
+  setTxt("btnStatsClear", T.statsClear);
+  setTxt("t-hint-stats", T.hintStats);
   setTxt("btnLogClear", T.clear);
   setTxt("t-lbl-convid", T.lblConvId);
   setTxt("btnLogin", T.login);
@@ -802,17 +860,20 @@ async function summarize() {
   btn.innerHTML = `<span class="spin"></span>${T.summarizing}`;
   $("btnCompare").disabled = true;
   setTxt("t-sum-timing", "");
+  const promptText = buildPrompt(transcript);
   try {
-    const res = await callProvider(provider, buildPrompt(transcript));
+    const res = await callProvider(provider, promptText);
     lastSummaryText = stripMarkdown(res.text);
     lastSummarizedTranscript = transcript;
     $("summaryOut").innerHTML = mdToHtml(res.text);
     const timing = `${PROVIDER_NAME[provider]} · model ${providerModelLabel(provider) || provider} · ${(res.ms / 1000).toFixed(1)}s`;
     setTxt("t-sum-timing", timing);
     msg("info", timing);
+    recordStat({ trigger: "manual", provider, model: providerModelLabel(provider), via: (cfg.gcActionId ? "data-action" : cfg.proxyUrl ? "proxy" : "direct"), success: true, ms: res.ms, promptChars: promptText.length, responseChars: res.text.length });
   } catch (e) {
     log("err", `AI error (${provider}): ${e.message}`);
     msg("err", T.errGeneric + e.message, true);
+    recordStat({ trigger: "manual", provider, model: providerModelLabel(provider), via: (cfg.gcActionId ? "data-action" : cfg.proxyUrl ? "proxy" : "direct"), success: false, error: e.message, promptChars: promptText.length });
   } finally {
     summarizing = false;
     btn.textContent = T.summarize;
@@ -838,7 +899,15 @@ async function compareProviders() {
   const outEl = $("summaryOut");
   outEl.textContent = "";
   const results = await Promise.allSettled(provs.map(p => callProvider(p, prompt)));
-  results.forEach((r, i) => { if (r.status === "rejected") log("err", `AI error (${provs[i]}): ${r.reason.message}`); });
+  results.forEach((r, i) => {
+    const via = cfg.gcActionId ? "data-action" : cfg.proxyUrl ? "proxy" : "direct";
+    if (r.status === "rejected") {
+      log("err", `AI error (${provs[i]}): ${r.reason.message}`);
+      recordStat({ trigger: "compare", provider: provs[i], model: providerModelLabel(provs[i]), via, success: false, error: r.reason.message, promptChars: prompt.length });
+    } else {
+      recordStat({ trigger: "compare", provider: provs[i], model: providerModelLabel(provs[i]), via, success: true, ms: r.value.ms, promptChars: prompt.length, responseChars: r.value.text.length });
+    }
+  });
   lastSummaryText = results.map((r, i) =>
     `${PROVIDER_NAME[provs[i]]}${r.status === "fulfilled" ? " (" + (r.value.ms / 1000).toFixed(1) + "s)" : ""}:\n${r.status === "fulfilled" ? stripMarkdown(r.value.text) : (T.errGeneric + r.reason.message)}`
   ).join("\n\n");
@@ -878,14 +947,16 @@ async function autoSummarizeAndWrapup() {
   $("btnCompare").disabled = true;
   const convIdAtStart = conversationId;
   log("info", "Auto-resumé startet ved SESSION_ENDED (afventer ikke agentens klik)…");
+  const promptText = buildPrompt(transcript);
   try {
-    const res = await callProvider(provider, buildPrompt(transcript));
+    const res = await callProvider(provider, promptText);
     lastSummaryText = stripMarkdown(res.text);
     lastSummarizedTranscript = transcript;
     $("summaryOut").innerHTML = mdToHtml(res.text);
     const timing = `${PROVIDER_NAME[provider]} · ${(res.ms / 1000).toFixed(1)}s (auto)`;
     setTxt("t-sum-timing", timing);
     log("info", `Auto-resumé færdigt (${timing})`);
+    recordStat({ trigger: "auto", provider, model: providerModelLabel(provider), via: (cfg.gcActionId ? "data-action" : cfg.proxyUrl ? "proxy" : "direct"), success: true, ms: res.ms, promptChars: promptText.length, responseChars: res.text.length });
     if (convIdAtStart !== conversationId) {
       log("warn", "Auto-resumé: conversationId ændrede sig undervejs — springer wrap-up-indsættelse over for at undgå at skrive på forkert samtale.");
       return;
@@ -893,6 +964,7 @@ async function autoSummarizeAndWrapup() {
     await writeWrapupNotes(convIdAtStart, stripMarkdown(res.text));
   } catch (e) {
     log("err", "Auto-resumé fejlede: " + e.message);
+    recordStat({ trigger: "auto", provider, model: providerModelLabel(provider), via: (cfg.gcActionId ? "data-action" : cfg.proxyUrl ? "proxy" : "direct"), success: false, error: e.message, promptChars: promptText.length });
   } finally {
     summarizing = false;
     btn.textContent = T.summarize;
@@ -1010,7 +1082,7 @@ async function init() {
   const lang = (q.get("langTag") || q.get("gcLangTag") || "").slice(0, 2).toLowerCase();
   if (lang && I18N[lang] && !localStorage.getItem(LS)) { cfg.uiLang = lang; cfg.sumLang = lang; }
 
-  log("info", `Widget start v1.6.1 · region=${cfg.region} · authType=${cfg.authType} · conversationId=${conversationId || "(none)"}`);
+  log("info", `Widget start v1.7.0 · region=${cfg.region} · authType=${cfg.authType} · conversationId=${conversationId || "(none)"}`);
   log("info", "URL query: " + (location.search || "(empty)"));
   await handleAuthReturn();
   loadForm();
@@ -1080,6 +1152,9 @@ async function init() {
     a.click(); URL.revokeObjectURL(a.href);
   });
   $("btnListWrapupCodes").addEventListener("click", listWrapupCodes);
+  $("btnStatsShow").addEventListener("click", showStatsSummary);
+  $("btnStatsExport").addEventListener("click", exportStatsCsv);
+  $("btnStatsClear").addEventListener("click", clearStats);
   $("btnDebugStart").addEventListener("click", startDebugFileLog);
   $("btnDebugStop").addEventListener("click", stopDebugFileLog);
   $("btnDebugResume").addEventListener("click", resumeDebugFileLogManual);

@@ -233,3 +233,10 @@ Kalder `POST {endpoint}/openai/deployments/{deployment}/chat/completions?api-ver
 
 ### v1.6.1 — Ren tekst (uden markdown) til wrap-up og "Kopiér resumé"
 Rettet: både automatisk indsættelse i wrap-up notes og **"Kopiér resumé"** sendte tidligere den rå AI-tekst med `**fed**`-markdør stadig i — fint i selve widget'en (som render'er det til rigtig fed skrift), men Genesys' native Notes-felt viser markdown råt, så det endte som bogstavelige stjerner i wrap-up-noterne. Begge veje strippe nu `**`-markdørerne før teksten sendes videre.
+
+### v1.7.0 — Statistik til dokumentation af tid/pris pr. udbyder
+Ny sektion i Log-fanen: **"Vis statistik i log"**, **"Eksportér statistik (CSV)"**, **"Ryd statistik"**. Hvert AI-kald — manuelt, automatisk (auto-resumé) og hver enkelt udbyder i **Sammenlign udbydere** — logges nu struktureret med: tidsstempel, conversationId, trigger (manual/auto/compare), udbyder, model, AI-vej (direct/proxy/data-action), succes/fejl, varighed i ms, prompt- og svar-længde.
+
+- **"Vis statistik i log"** viser en hurtig opsummering (antal, gennemsnit/min/max pr. udbyder) direkte i Log-fanen.
+- **"Eksportér statistik (CSV)"** downloader alle registrerede kald som en `.csv`-fil, klar til Excel — til at dokumentere tid/pris-effekten på tværs af udbydere over tid.
+- Gemmes i `localStorage` (nøgle `gcTranscriptWidgetStats`), samme princip som log-persistensen — overlever iframe-luk, men er **pr. browser/maskine, ikke centralt samlet på tværs af agenter**. Skal I dokumentere på team-niveau, skal CSV-filer fra hver agent-maskine eksporteres og samles manuelt (eller udvides til et centralt endpoint senere — ikke bygget).
