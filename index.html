@@ -274,6 +274,10 @@
       <input type="text" id="azureApiVersion" autocomplete="off" spellcheck="false" placeholder="2024-08-01-preview">
       <p class="hint" id="t-hint-azure"></p>
       <p class="hint" id="t-hint-keys"></p>
+      <p class="hint" id="t-org-status"></p>
+      <div class="row">
+        <button class="btn secondary" id="btnResetToOrg"></button>
+      </div>
       <label id="t-lbl-ollama" for="ollamaUrl"></label>
       <div class="keyrow">
         <input type="text" id="ollamaUrl" autocomplete="off" spellcheck="false" placeholder="http://localhost:11434">
@@ -300,7 +304,7 @@
     </fieldset>
 
     <div class="row"><button class="btn" id="btnSave"></button></div>
-    <p class="footer-note" id="verNote">Genesys Transcript &amp; Summary Widget v1.7.2</p>
+    <p class="footer-note" id="verNote">Genesys Transcript &amp; Summary Widget v1.8.0</p>
   </section>
 </main>
 
@@ -335,6 +339,11 @@ const I18N = {
     login:"Log ind", logout:"Log ud", save:"Gem opsætning",
     hintKeys:"Nøgler gemmes kun lokalt i denne browser (localStorage) og sendes direkte til den valgte AI-udbyder.",
     hintAzure:"Bruges til Azure OpenAI Service (ofte kaldet \"Copilot\" internt). Endpoint-URL'en og deployment-navnet finder du i jeres Azure OpenAI-ressource i Azure Portal. API-version ændres sjældent — lad den stå medmindre jeres IT-afdeling har angivet en anden.",
+    resetToOrg:"Nulstil til org-standard",
+    resetToOrgDone:"Lokale nøgler/overrides ryddet — org-standarden bruges nu igen.",
+    orgStatusNone:"Ingen org-standard fundet i widget-URL'en (orgActionId/orgProxyUrl).",
+    orgStatusActive:"Org-standard aktiv: {kind}, sat centralt af admin i widget-URL'en.",
+    orgStatusOverridden:"Din egen nøgle bruges i stedet for: {list}.",
     legUI:"Sprog", lblUiLang:"Widget-sprog",
     authOk:"Logget ind", authNo:"Ikke logget ind",
     saved:"Opsætning gemt.",
@@ -410,6 +419,11 @@ const I18N = {
     login:"Log in", logout:"Log out", save:"Save settings",
     hintKeys:"Keys are stored locally in this browser only (localStorage) and sent directly to the chosen AI provider.",
     hintAzure:"Used for Azure OpenAI Service (often called \"Copilot\" internally). Find the endpoint URL and deployment name in your Azure OpenAI resource in the Azure Portal. The API version rarely changes — leave it unless your IT department specifies otherwise.",
+    resetToOrg:"Reset to org default",
+    resetToOrgDone:"Local keys/overrides cleared — the org default is now in effect again.",
+    orgStatusNone:"No org default found in the widget URL (orgActionId/orgProxyUrl).",
+    orgStatusActive:"Org default active: {kind}, set centrally by admin in the widget URL.",
+    orgStatusOverridden:"Your own key is used instead for: {list}.",
     legUI:"Language", lblUiLang:"Widget language",
     authOk:"Logged in", authNo:"Not logged in",
     saved:"Settings saved.",
@@ -485,6 +499,11 @@ const I18N = {
     login:"Connexion", logout:"Déconnexion", save:"Enregistrer",
     hintKeys:"Les clés sont stockées uniquement dans ce navigateur (localStorage) et envoyées directement au fournisseur IA choisi.",
     hintAzure:"Utilisé pour Azure OpenAI Service (souvent appelé \"Copilot\" en interne). L'URL de point de terminaison et le nom du déploiement se trouvent dans votre ressource Azure OpenAI sur le Portail Azure. La version de l'API change rarement — laissez-la telle quelle sauf indication contraire de votre service informatique.",
+    resetToOrg:"Réinitialiser vers le standard org",
+    resetToOrgDone:"Clés/overrides locaux effacés — le standard org est de nouveau en vigueur.",
+    orgStatusNone:"Aucun standard org trouvé dans l'URL du widget (orgActionId/orgProxyUrl).",
+    orgStatusActive:"Standard org actif : {kind}, défini centralement par l'admin dans l'URL du widget.",
+    orgStatusOverridden:"Votre propre clé est utilisée à la place pour : {list}.",
     legUI:"Langue", lblUiLang:"Langue du widget",
     authOk:"Connecté", authNo:"Non connecté",
     saved:"Configuration enregistrée.",
@@ -560,6 +579,11 @@ const I18N = {
     login:"Anmelden", logout:"Abmelden", save:"Einstellungen speichern",
     hintKeys:"Schlüssel werden nur lokal in diesem Browser gespeichert (localStorage) und direkt an den gewählten KI-Anbieter gesendet.",
     hintAzure:"Wird für Azure OpenAI Service verwendet (intern oft \"Copilot\" genannt). Endpoint-URL und Deployment-Name finden Sie in Ihrer Azure-OpenAI-Ressource im Azure Portal. Die API-Version ändert sich selten — lassen Sie sie unverändert, sofern Ihre IT-Abteilung nichts anderes angibt.",
+    resetToOrg:"Auf Org-Standard zurücksetzen",
+    resetToOrgDone:"Lokale Schlüssel/Overrides gelöscht — der Org-Standard gilt jetzt wieder.",
+    orgStatusNone:"Kein Org-Standard in der Widget-URL gefunden (orgActionId/orgProxyUrl).",
+    orgStatusActive:"Org-Standard aktiv: {kind}, zentral vom Admin in der Widget-URL gesetzt.",
+    orgStatusOverridden:"Ihr eigener Schlüssel wird stattdessen verwendet für: {list}.",
     legUI:"Sprache", lblUiLang:"Widget-Sprache",
     authOk:"Angemeldet", authNo:"Nicht angemeldet",
     saved:"Einstellungen gespeichert.",

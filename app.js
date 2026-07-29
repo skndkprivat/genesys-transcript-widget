@@ -22,9 +22,52 @@ const defaults = {
   autoWrapup: false,
   autoWrapupCode: "",
   authType: "pkce",
-  focusPoints: ""
+  focusPoints: "",
+  savedCfgVersion: ""
 };
 let cfg = { ...defaults, ...(JSON.parse(localStorage.getItem(LS) || "{}")) };
+
+/* Org-wide defaults supplied by the admin via the widget's Application URL
+   in Genesys Admin (Integrations → this Interaction Widget → Configuration).
+   Intentionally NOT persisted — read fresh from the URL on every load, so
+   admin only has to edit that URL once, centrally, for the change to apply
+   to every agent immediately. Only ever an actionId/proxyUrl/version number
+   — NEVER a raw API key — since this URL is visible to every agent's
+   browser (DevTools/Network tab), unlike Genesys' own Credentials tab. */
+let ORG = { actionId: "", proxyUrl: "", cfgVersion: "" };
+
+/* Whether the agent has their OWN key/config for a provider — takes
+   precedence over any org-wide default when present. */
+function agentHasOwnKey(p) {
+  if (p === "ollama") return !!cfg.ollamaUrl;
+  if (p === "azure") return !!(cfg.keyAzure && cfg.azureEndpoint && cfg.azureDeployment);
+  return !!cfg["key" + p[0].toUpperCase() + p.slice(1)];
+}
+/* Effective Data Action / Proxy to use: agent's own manually-configured
+   value (Opsætning, advanced/rare) wins if set, otherwise the org-wide
+   default supplied via the widget URL. */
+function effectiveActionId() { return cfg.gcActionId || ORG.actionId || ""; }
+function effectiveProxyUrl() { return cfg.proxyUrl || ORG.proxyUrl || ""; }
+/* Which path a given provider call will actually take, given the current
+   precedence (agent's own key > agent's own Data Action/Proxy > org default). */
+function currentVia(provider) {
+  if (agentHasOwnKey(provider)) return "direct";
+  if (effectiveActionId()) return "data-action";
+  if (effectiveProxyUrl()) return "proxy";
+  return "direct";
+}
+/* Clears the agent's own local keys/overrides so the org-wide default
+   (Data Action / Proxy from the admin URL) takes over again. Triggered
+   either by the agent clicking "Nulstil til org-standard", or
+   automatically when the admin bumps cfgVersion in the widget URL. */
+function resetAgentOverridesToDefault() {
+  cfg.keyOpenai = ""; cfg.keyGemini = ""; cfg.keyClaude = "";
+  cfg.keyAzure = ""; cfg.azureEndpoint = ""; cfg.azureDeployment = ""; cfg.azureApiVersion = defaults.azureApiVersion;
+  cfg.ollamaUrl = defaults.ollamaUrl;
+  cfg.whisperUrl = "";
+  cfg.gcActionId = "";
+  cfg.proxyUrl = "";
+}
 
 let token = sessionStorage.getItem("gcToken") || "";
 let conversationId = "";
@@ -321,6 +364,8 @@ function applyLang() {
   setTxt("btnSave", T.save);
   setTxt("t-hint-keys", T.hintKeys);
   setTxt("t-hint-azure", T.hintAzure);
+  setTxt("btnResetToOrg", T.resetToOrg);
+  renderOrgStatus();
   setTxt("t-lbl-proxy", T.lblProxy);
   setTxt("t-hint-proxy", T.hintProxy);
   setTxt("t-lbl-action", T.lblAction);
@@ -343,6 +388,19 @@ function applyLang() {
   setTxt("authPill", token ? T.authOk : T.authNo);
   if ($("authPill")) $("authPill").className = "pill " + (token ? "auth-ok" : "auth-no");
   if ($("authSettingsWrap")) $("authSettingsWrap").hidden = !!token;
+}
+
+/* Shows whether an org-wide default (Data Action/Proxy from the admin URL)
+   is currently in effect, and for which provider(s) it would actually be
+   used given the agent's own settings (see agentHasOwnKey precedence). */
+function renderOrgStatus() {
+  const el = $("t-org-status");
+  if (!el) return;
+  if (!ORG.actionId && !ORG.proxyUrl) { el.textContent = T.orgStatusNone; return; }
+  const kind = ORG.actionId ? "Data Action" : "Proxy";
+  const overriddenProviders = ["openai", "gemini", "claude", "azure", "ollama"].filter(agentHasOwnKey);
+  el.textContent = T.orgStatusActive.replace("{kind}", kind) +
+    (overriddenProviders.length ? " " + T.orgStatusOverridden.replace("{list}", overriddenProviders.map(p => PROVIDER_NAME[p]).join(", ")) : "");
 }
 
 function msg(kind, text, sticky) {
@@ -738,10 +796,7 @@ function buildPrompt(transcript) {
    NOTE (browser mode): Ollama must allow the widget's origin:
    OLLAMA_ORIGINS="https://<user>.github.io" (or "*") before starting Ollama. */
 function providerAvailable(p) {
-  if (cfg.gcActionId || cfg.proxyUrl) return true;
-  if (p === "ollama") return !!cfg.ollamaUrl;
-  if (p === "azure") return !!(cfg.keyAzure && cfg.azureEndpoint && cfg.azureDeployment);
-  return !!cfg["key" + p[0].toUpperCase() + p.slice(1)];
+  return agentHasOwnKey(p) || !!effectiveActionId() || !!effectiveProxyUrl();
 }
 
 /* Model/deployment label shown in logs and the timing line. Azure has no
@@ -754,18 +809,23 @@ function providerModelLabel(provider) {
 
 async function callProvider(provider, prompt) {
   const t0 = performance.now();
-  const via = cfg.gcActionId ? "data-action" : cfg.proxyUrl ? "proxy" : "direct";
+  const ownKey = agentHasOwnKey(provider);
+  const actionId = effectiveActionId();
+  const proxyUrl = effectiveProxyUrl();
+  const via = ownKey ? "direct" : (actionId ? "data-action" : proxyUrl ? "proxy" : "direct");
   const model = providerModelLabel(provider);
   log("info", `AI call: ${provider} via ${via}, model ${model}, prompt ${prompt.length} chars`);
   const key = provider === "ollama" ? "" : cfg["key" + provider[0].toUpperCase() + provider.slice(1)];
   let out = "";
 
-  if (cfg.gcActionId) {
+  if (!ownKey && actionId) {
     /* Genesys Function Data Action mode: keys live ONLY in the Genesys
        integration's Credentials tab — nothing is sent from the browser.
        Executed with the agent's own Genesys token; requires the
-       integrations:action:execute permission. */
-    const d = await gc(`/api/v2/integrations/actions/${encodeURIComponent(cfg.gcActionId)}/execute`, {
+       integrations:action:execute permission. Only used when the agent
+       hasn't configured their own key for this provider — see precedence
+       comment above agentHasOwnKey(). */
+    const d = await gc(`/api/v2/integrations/actions/${encodeURIComponent(actionId)}/execute`, {
       method: "POST",
       body: JSON.stringify({
         provider,
@@ -776,9 +836,9 @@ async function callProvider(provider, prompt) {
     });
     out = (d && d.text) || "";
 
-  } else if (cfg.proxyUrl) {
+  } else if (!ownKey && proxyUrl) {
     /* Proxy mode: server-side key/URL takes precedence; local values are fallback only. */
-    const r = await fetch(cfg.proxyUrl.replace(/\/$/, "") + "/summarize", {
+    const r = await fetch(proxyUrl.replace(/\/$/, "") + "/summarize", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -891,11 +951,11 @@ async function summarize() {
     const timing = `${PROVIDER_NAME[provider]} · model ${providerModelLabel(provider) || provider} · ${(res.ms / 1000).toFixed(1)}s`;
     setTxt("t-sum-timing", timing);
     msg("info", timing);
-    recordStat({ trigger: "manual", provider, model: providerModelLabel(provider), via: (cfg.gcActionId ? "data-action" : cfg.proxyUrl ? "proxy" : "direct"), success: true, ms: res.ms, promptChars: promptText.length, responseChars: res.text.length });
+    recordStat({ trigger: "manual", provider, model: providerModelLabel(provider), via: currentVia(provider), success: true, ms: res.ms, promptChars: promptText.length, responseChars: res.text.length });
   } catch (e) {
     log("err", `AI error (${provider}): ${e.message}`);
     msg("err", T.errGeneric + e.message, true);
-    recordStat({ trigger: "manual", provider, model: providerModelLabel(provider), via: (cfg.gcActionId ? "data-action" : cfg.proxyUrl ? "proxy" : "direct"), success: false, error: e.message, promptChars: promptText.length });
+    recordStat({ trigger: "manual", provider, model: providerModelLabel(provider), via: currentVia(provider), success: false, error: e.message, promptChars: promptText.length });
   } finally {
     summarizing = false;
     btn.textContent = T.summarize;
@@ -922,7 +982,7 @@ async function compareProviders() {
   outEl.textContent = "";
   const results = await Promise.allSettled(provs.map(p => callProvider(p, prompt)));
   results.forEach((r, i) => {
-    const via = cfg.gcActionId ? "data-action" : cfg.proxyUrl ? "proxy" : "direct";
+    const via = currentVia(provs[i]);
     if (r.status === "rejected") {
       log("err", `AI error (${provs[i]}): ${r.reason.message}`);
       recordStat({ trigger: "compare", provider: provs[i], model: providerModelLabel(provs[i]), via, success: false, error: r.reason.message, promptChars: prompt.length });
@@ -978,7 +1038,7 @@ async function autoSummarizeAndWrapup() {
     const timing = `${PROVIDER_NAME[provider]} · ${(res.ms / 1000).toFixed(1)}s (auto)`;
     setTxt("t-sum-timing", timing);
     log("info", `Auto-resumé færdigt (${timing})`);
-    recordStat({ trigger: "auto", provider, model: providerModelLabel(provider), via: (cfg.gcActionId ? "data-action" : cfg.proxyUrl ? "proxy" : "direct"), success: true, ms: res.ms, promptChars: promptText.length, responseChars: res.text.length });
+    recordStat({ trigger: "auto", provider, model: providerModelLabel(provider), via: currentVia(provider), success: true, ms: res.ms, promptChars: promptText.length, responseChars: res.text.length });
     if (convIdAtStart !== conversationId) {
       log("warn", "Auto-resumé: conversationId ændrede sig undervejs — springer wrap-up-indsættelse over for at undgå at skrive på forkert samtale.");
       return;
@@ -986,7 +1046,7 @@ async function autoSummarizeAndWrapup() {
     await writeWrapupNotes(convIdAtStart, stripMarkdown(res.text));
   } catch (e) {
     log("err", "Auto-resumé fejlede: " + e.message);
-    recordStat({ trigger: "auto", provider, model: providerModelLabel(provider), via: (cfg.gcActionId ? "data-action" : cfg.proxyUrl ? "proxy" : "direct"), success: false, error: e.message, promptChars: promptText.length });
+    recordStat({ trigger: "auto", provider, model: providerModelLabel(provider), via: currentVia(provider), success: false, error: e.message, promptChars: promptText.length });
   } finally {
     summarizing = false;
     btn.textContent = T.summarize;
@@ -1104,7 +1164,21 @@ async function init() {
   const lang = (q.get("langTag") || q.get("gcLangTag") || "").slice(0, 2).toLowerCase();
   if (lang && I18N[lang] && !localStorage.getItem(LS)) { cfg.uiLang = lang; cfg.sumLang = lang; }
 
-  log("info", `Widget start v1.7.2 · region=${cfg.region} · authType=${cfg.authType} · conversationId=${conversationId || "(none)"}`);
+  /* Org-wide config, supplied by admin via the widget's Application URL
+     (Genesys Admin → Integrations → this widget → Configuration). NOT
+     secrets — orgActionId/orgProxyUrl only ever reference a Data Action ID
+     or a proxy URL, never a raw API key. */
+  ORG.actionId = q.get("orgActionId") || "";
+  ORG.proxyUrl = q.get("orgProxyUrl") || "";
+  ORG.cfgVersion = q.get("cfgVersion") || "";
+  if (ORG.cfgVersion && (!cfg.savedCfgVersion || Number(cfg.savedCfgVersion) < Number(ORG.cfgVersion))) {
+    resetAgentOverridesToDefault();
+    cfg.savedCfgVersion = ORG.cfgVersion;
+    localStorage.setItem(LS, JSON.stringify(cfg));
+    setTimeout(() => log("info", `Org-konfiguration nulstillet til standard (cfgVersion ${ORG.cfgVersion}) — lokale nøgler/overrides ryddet.`), 0);
+  }
+
+  log("info", `Widget start v1.8.0 · region=${cfg.region} · authType=${cfg.authType} · conversationId=${conversationId || "(none)"}`);
   log("info", "URL query: " + (location.search || "(empty)"));
   await handleAuthReturn();
   loadForm();
@@ -1138,6 +1212,13 @@ async function init() {
   $("btnCopyS").addEventListener("click", () => copyText(lastSummaryText));
   $("btnLogin").addEventListener("click", login);
   $("btnLogout").addEventListener("click", logout);
+  $("btnResetToOrg").addEventListener("click", () => {
+    resetAgentOverridesToDefault();
+    localStorage.setItem(LS, JSON.stringify(cfg));
+    loadForm(); applyLang();
+    msg("info", T.resetToOrgDone);
+    log("info", "Agent klikkede \"Nulstil til org-standard\" — lokale nøgler/overrides ryddet.");
+  });
   $("btnSave").addEventListener("click", () => {
     saveForm(); applyLang(); msg("info", T.saved);
     // conversationId changed while a live subscription is running (or none yet):

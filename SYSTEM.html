@@ -156,6 +156,9 @@
 <tr><td class="L" data-da="Nøglehåndtering i tre niveauer" data-en="Three-tier key management"></td>
     <td class="L" data-da="1) Function Data Action: nøgler kun i Genesys Credentials (anbefalet, produktion). 2) Cloudflare Worker: nøgler som server-secrets. 3) Direkte: nøgler i browserens localStorage (kun PoC). Se afsnit 5."
         data-en="1) Function Data Action: keys only in Genesys Credentials (recommended, production). 2) Cloudflare Worker: keys as server secrets. 3) Direct: keys in the browser's localStorage (PoC only). See section 5."></td></tr>
+<tr><td class="L" data-da="Org-standard for AI-adgang, styret centralt af admin" data-en="Org default for AI access, centrally admin-controlled"></td>
+    <td class="L" data-da="Admin sætter én fælles AI-adgang for alle agenter via to ikke-hemmelige parametre på selve widget-URL'en i Genesys Admin: <code>orgActionId</code> (Data Action ID) eller <code>orgProxyUrl</code> — aldrig en rå API-nøgle, da URL'en er synlig for enhver agent. Agentens egen nøgle vinder altid, hvis den er sat; ellers bruges org-standarden automatisk. En tredje parameter, <code>cfgVersion</code>, lader admin nulstille alle agenters lokale nøgler/overrides på én gang blot ved at ændre et tal — ingen deploy, ingen agent-handling. Se afsnit 5."
+        data-en="Admin sets one shared AI access for all agents via two non-secret parameters on the widget URL itself in Genesys Admin: <code>orgActionId</code> (Data Action ID) or <code>orgProxyUrl</code> — never a raw API key, since the URL is visible to every agent. The agent's own key always wins if set; otherwise the org default is used automatically. A third parameter, <code>cfgVersion</code>, lets admin reset every agent's local keys/overrides at once just by changing a number — no deploy, no agent action. See section 5."></td></tr>
 <tr><td class="L" data-da="Flersproget UI" data-en="Multilingual UI"></td>
     <td class="L" data-da="Dansk, engelsk, fransk, tysk — vælges automatisk ud fra {{gcLangTag}} eller manuelt."
         data-en="Danish, English, French, German — selected automatically from {{gcLangTag}} or manually."></td></tr>
@@ -208,28 +211,32 @@
 </div>
 
 <h2 class="L" data-da="5. AI-vej og nøgleprioritering" data-en="5. AI path and key precedence"></h2>
+
+<p class="L"
+ data-da="Prioriteringen har to lag, der ikke må forveksles: (a) hvilken <em>vej</em> et givent kald tager (Data Action / Proxy / Direkte, styret pr. udbyder af om agenten selv har en nøgle), og (b) hvor selve Action ID'et/Proxy-URL'en kommer fra (agentens egen manuelle indtastning, eller admins centrale org-standard via widget-URL'en). Se afsnit 2, rækken «Org-standard for AI-adgang», for detaljer om lag (b)."
+ data-en="The precedence has two layers that shouldn't be conflated: (a) which <em>path</em> a given call takes (Data Action / Proxy / Direct, decided per provider by whether the agent has their own key), and (b) where the Action ID/Proxy URL itself comes from (the agent's own manual entry, or admin's central org default via the widget URL). See section 2, the «Org default for AI access» row, for details on layer (b)."></p>
 <div class="diagram">
 <svg viewBox="0 0 880 300" width="880" height="300" role="img" aria-label="Key precedence decision">
 <rect class="box box-w" x="330" y="15" width="220" height="40" rx="8"/>
 <text x="440" y="40" text-anchor="middle" class="t-head">Generér resumé</text>
 
 <rect class="box box-sec" x="60" y="105" width="230" height="70" rx="8"/>
-<text class="t-head" x="175" y="128" text-anchor="middle">1. Function Data Action?</text>
-<text class="t-small" x="175" y="145" text-anchor="middle">Action ID sat → kør i Genesys</text>
-<text class="t-small" x="175" y="160" text-anchor="middle">Nøgler: KUN Credentials-tab</text>
+<text class="t-head" x="175" y="124" text-anchor="middle">1. Agentens egen nøgle?</text>
+<text class="t-small" x="175" y="141" text-anchor="middle">Sat → Direkte, altid</text>
+<text class="t-small" x="175" y="156" text-anchor="middle">(vinder over org-standard)</text>
 
 <rect class="box box-sec" x="330" y="105" width="230" height="70" rx="8"/>
-<text class="t-head" x="445" y="128" text-anchor="middle">2. Proxy-URL?</text>
-<text class="t-small" x="445" y="145" text-anchor="middle">Server-secret vinder ALTID</text>
-<text class="t-small" x="445" y="160" text-anchor="middle">klientnøgle kun fallback</text>
+<text class="t-head" x="445" y="124" text-anchor="middle">2. Action ID / Proxy?</text>
+<text class="t-small" x="445" y="141" text-anchor="middle">Agent-felt ELLER org-standard</text>
+<text class="t-small" x="445" y="156" text-anchor="middle">(orgActionId/orgProxyUrl i URL)</text>
 
 <rect class="box" x="600" y="105" width="230" height="70" rx="8"/>
-<text class="t-head" x="715" y="128" text-anchor="middle">3. Direkte</text>
-<text class="t-small" x="715" y="145" text-anchor="middle">nøgle fra localStorage</text>
-<text class="t-small" x="715" y="160" text-anchor="middle">kun PoC / pilot</text>
+<text class="t-head" x="715" y="128" text-anchor="middle">3. Ingen af delene</text>
+<text class="t-small" x="715" y="145" text-anchor="middle">→ fejl: «ingen nøgle»</text>
+<text class="t-small" x="715" y="160" text-anchor="middle">agenten skal konfigurere nøgle</text>
 
 <path class="arrow" d="M380 55 L 200 102"/><text class="t-small" x="240" y="80">ja</text>
-<path class="arrow" d="M440 55 L 443 102"/><text class="t-small" x="450" y="80">ellers: proxy sat?</text>
+<path class="arrow" d="M440 55 L 443 102"/><text class="t-small" x="440" y="80">ellers</text>
 <path class="arrow" d="M505 55 L 690 102"/><text class="t-small" x="620" y="80">ellers</text>
 
 <rect class="box box-ai" x="330" y="225" width="230" height="50" rx="8"/>
@@ -237,9 +244,8 @@
 <text class="t-small" x="445" y="264" text-anchor="middle">model + prompt m. fokuspunkter</text>
 <path class="arrow arrow-ai" d="M175 175 C 175 230, 280 250, 327 250"/>
 <path class="arrow arrow-ai" d="M445 175 L 445 222"/>
-<path class="arrow arrow-ai" d="M715 175 C 715 230, 610 250, 563 250"/>
 </svg>
-<div class="cap L" data-da="Fig. 4 — Prioritering: Data Action &gt; Proxy &gt; Direkte. På hvert niveau vinder server-side nøgler over klient-nøgler." data-en="Fig. 4 — Precedence: Data Action &gt; Proxy &gt; Direct. At every level, server-side keys win over client keys."></div>
+<div class="cap L" data-da="Fig. 4 — Agentens egen nøgle vinder altid; ellers bruges Data Action/Proxy, enten agentens eget felt eller admins org-standard fra widget-URL'en. Ny i v1.8.0: to-lags-modellen erstatter den tidligere rene Data Action &gt; Proxy &gt; Direkte-rækkefølge." data-en="Fig. 4 — The agent's own key always wins; otherwise Data Action/Proxy is used, either the agent's own field or admin's org default from the widget URL. New in v1.8.0: this two-layer model replaces the previous flat Data Action &gt; Proxy &gt; Direct order."></div>
 </div>
 
 <table>
@@ -340,7 +346,7 @@
  data-da="Databeskyttelse: Med Ollama-vejen (direkte eller via intern server) forlader hverken transskript eller resumé organisationens infrastruktur. Med Data Action-/proxy-vejen sendes transskriptet til den valgte cloud-AI-udbyder — afklar databehandleraftale og region (EU-endpoints) inden produktion."
  data-en="Data protection: With the Ollama path (direct or via an internal server), neither transcript nor summary ever leaves the organisation's infrastructure. With the Data Action/proxy path, the transcript is sent to the chosen cloud AI provider — clarify DPA and region (EU endpoints) before production."></div>
 
-<footer>Genesys Transcript &amp; AI Summary Widget · v1.7.1 · Sabio / skndkprivat</footer>
+<footer>Genesys Transcript &amp; AI Summary Widget · v1.8.0 · Sabio / skndkprivat</footer>
 
 <script>
 function setLang(l){

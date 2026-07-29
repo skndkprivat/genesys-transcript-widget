@@ -252,3 +252,21 @@ Da udklipsholderen (som allerede bruges af "Kopiér"-knapperne) beviseligt virke
 
 ### v1.7.2 — Lokal tid i stedet for UTC
 `new Date().toISOString()` returnerer altid UTC, så både tidsstemplerne i Log-fanen og i den eksporterede statistik-CSV viste UTC i stedet for agentens lokale tid. Rettet: både log-linjer, "Gemt log fra forrige session"-tidsstemplet og CSV-kolonnen (nu `timestamp_local`) bruger agentens lokale browsertid.
+
+### v1.8.0 — Org-standard for AI-adgang via widget-URL’en (sikkert, uden at udstille nøgler)
+Ny central mekanisme, så admin kan sætte én fast AI-adgang for **alle agenter på én gang** — uden at nå en eneste API-nøgle når agenternes browsere, og uden at det går ud over agentens mulighed for selv at bruge sin egen nøgle.
+
+**Tre lag, i prioriteret rækkefølge, pr. udbyder:**
+1. **Agentens egen nøgle** (indtastet under Opsætning) — bruges altid først, hvis den er sat.
+2. **Agentens egen avancerede override** (`gcActionId`/`proxyUrl`-felterne, manuelt udfyldt — sjældent brugt).
+3. **Org-standard**, sat centralt af admin via to nye, **ikke-hemmelige** URL-parametre på selve widget'ens Application URL i Genesys Admin (Integrations → widget → Configuration):
+   - `orgActionId=<Data Action ID>` — den anbefalede vej: nøglen ligger *kun* i Genesys' egen Credentials-tab, aldrig i nogen browser (se "Function Data Action"-forklaringen nedenfor).
+   - `orgProxyUrl=<url>` — alternativ, hvis I bruger jeres egen proxy-server i stedet.
+
+   Da URL'en er den samme for alle agenter, der har widget'en tildelt, gælder org-standarden automatisk for alle — uden kode-ændringer, uden at nogen agent skal gøre noget.
+
+**Admin-nulstil, uden at kontakte agenterne enkeltvis:** en tredje ikke-hemmelig parameter, `cfgVersion=<tal>`, i samme URL. Bump'er admin tallet, opdager widget'en det ved næste åbning og **rydder automatisk agentens lokale nøgler/overrides** (alle AI-nøgler, Azure-felter, Ollama-URL, Whisper-URL, agentens egne `gcActionId`/`proxyUrl`), så org-standarden træder i kraft igen — ét tal ændret ét sted, ingen deploy, ingen agent skal foretage sig noget.
+
+**Agenten kan også selv nulstille:** ny knap **"Nulstil til org-standard"** under Opsætning (AI-fieldset'et), plus en statuslinje, der viser om en org-standard er fundet, og om agentens egen nøgle overstyrer den for bestemte udbydere.
+
+**Hvorfor ikke bare sætte en rigtig API-nøgle i URL'en?** Fordi den URL er synlig for *enhver agent* via DevTools/Netværksfanen — værre eksponering end nutidens per-agent `localStorage`, hvor kun én agent kender sin egen nøgle. `orgActionId`/`orgProxyUrl` er derfor bevidst begrænset til ikke-hemmeligheder; den rigtige nøgle skal ligge i Genesys' Function Data Action (Credentials-tab) eller i jeres egen proxy-server, aldrig i widget-URL'en.
