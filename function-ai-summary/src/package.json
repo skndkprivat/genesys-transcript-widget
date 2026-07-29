@@ -1,0 +1,6 @@
+{
+  "name": "gc-function-ai-summary",
+  "version": "1.0.0",
+  "description": "Genesys Cloud Function Data Action - AI call summary (OpenAI/Gemini/Claude/Ollama)",
+  "main": "index.js"
+}

@@ -4,6 +4,22 @@ Interaction Widget til Genesys Cloud, der viser samtalens transskription og gene
 
 Flad filstruktur (`index.html` + `app.js`) — kan uploades direkte via GitHub-webinterfacet og hostes på GitHub Pages.
 
+## Skærmbilleder
+
+> Gem de vedhæftede billeder i en `screenshots/`-mappe i repoet, så linksne herunder virker på GitHub.
+
+**Transskription** — realtid, kunde/agent-adskilt med tidsstempler:
+![Transskription](screenshots/transskription.png)
+
+**Resumé** — formateret AI-resumé med tidsforbrug:
+![Resumé](screenshots/resume.png)
+
+**Log** — struktureret hændelseslog til fejlsøgning:
+![Log](screenshots/log.png)
+
+**Opsætning** — Genesys Cloud, transskription, AI-udbydere (inkl. Azure OpenAI) og org-standard:
+![Opsætning](screenshots/opsaetning.png)
+
 ## To måder at få transskriptionen
 
 | Metode | Hvornår | Krav |
@@ -15,11 +31,15 @@ Anbefaling: start **Realtid** når samtalen begynder — så er hele transskript
 
 ## AI-resumé
 
-Understøtter tre udbydere med egne API-nøgler (gemmes kun i browserens localStorage, sendes direkte til udbyderen — ingen backend):
+Understøtter fem udbydere (nøgler gemmes kun i browserens localStorage og sendes direkte til udbyderen, medmindre Proxy eller Data Action er sat op — se "Nøglehåndtering" nedenfor):
 
 - **OpenAI** (`gpt-4o-mini` som standard)
 - **Google Gemini** (`gemini-2.0-flash`)
 - **Anthropic Claude** (`claude-sonnet-4-5`)
+- **Azure OpenAI (Copilot)** — API-nøgle + endpoint-URL + deployment-navn + API-version. Det er det, de fleste virksomheder mener, når de siger "Copilot" internt.
+- **Ollama (lokal)** — gratis, kører på egen maskine/server, data forlader aldrig organisationen.
+
+Fra v1.8.0 kan admin også sætte en **org-standard** for alle agenter centralt via widget-URL'en (`orgActionId`/`orgProxyUrl`), uden at nogen API-nøgle nogensinde når agenternes browsere — se afsnittet om v1.8.0 i changelog'en nedenfor.
 
 **Fokuspunkter**: fritekstfelt hvor man definerer, hvad der er vigtigt i samtalerne (aftaler, beløb, sagsnumre, klager, GDPR-emner …). Teksten injiceres i AI-prompten. Resumésprog kan vælges uafhængigt af UI-sprog.
 
