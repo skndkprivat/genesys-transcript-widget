@@ -60,6 +60,7 @@ Admin → Integrations → **Add Integration** → *Interaction Widget*
   ```
   https://<bruger>.github.io/<repo>/index.html?conversationId={{gcConversationId}}&langTag={{gcLangTag}}
   ```
+  Til produktion: tilføj org-parametrene (`orgActionId`, `orgLock=1` …), se afsnittet **Sikkerhed** nedenfor.
 - Iframe sandbox options: `allow-scripts,allow-same-origin,allow-forms,allow-popups,allow-downloads` (`allow-downloads` er nødvendig for "Gem som fil", "Hent forrige log" og CSV-eksport)
 - Iframe feature permissions: `clipboard-write`
 - Communication type filtering: `call` (eller tom for alle)
@@ -115,6 +116,39 @@ Hvis wrap-up (ACW) har en timeout — fx 20 sek. — og agenten (eller Genesys) 
 - **Data Action-vejen har derudover et serverside-spor**: Genesys logger selv eksekveringen af integrationens Data Action (Admin → Integrations → Actions → den pågældende action, evt. via Audit Viewer) — den logning overlever uanset browser/iframe og er den mest robuste kilde, hvis I skal dokumentere timeouts systematisk på tværs af flere agenter/maskiner.
 - **Direkte og proxy-vejen** har intet centralt spor — kun den lokale `localStorage`-log (én maskine ad gangen) eller evt. AI-udbyderens/Cloudflare Workerens egne logs.
 - **OBS — privatliv/delte maskiner**: `localStorage` gemmer kun én session ad gangen (overskrives ved hver ny), men den ligger på tværs af alle samtaler på samme browser/maskine, indtil den overskrives eller ryddes ("Ryd"-knappen i Log-fanen rydder også den gemte kopi). På delte agent-maskiner bør I være opmærksomme på, at forrige agents logline (inkl. transskript-uddrag i loggen) potentielt kan hentes af den næste, der åbner widget'en.
+
+## Sikkerhed
+
+Widget'en har ingen egen backend. De to valgfrie serverkomponenter, Function Data Action og Cloudflare Worker, er de eneste steder, hvor organisationens AI-nøgler findes. Den fulde beskrivelse med diagrammer står i `SYSTEM.html`, afsnit 5 og 9.
+
+### Anbefalet produktionsopsætning
+1. **AI via Function Data Action** (eller proxy) med nøglerne i Genesys' Credentials-tab eller som Worker-secrets. Brug aldrig agenternes egne nøgler i produktion.
+2. **Lås org-vejen** i widget'ens Application URL, så agenterne ikke kan sende transskriptioner andre steder hen:
+   ```
+   https://<host>/index.html?conversationId={{gcConversationId}}&langTag={{gcLangTag}}&orgActionId=<Data Action ID>&orgLock=1&cfgVersion=1
+   ```
+   Tilføj evt. `&orgFocus=<URL-encoded tekst>` for fælles fokuspunkter. Sæt aldrig en API-nøgle eller anden hemmelighed i URL'en; den er synlig for alle agenter.
+3. **OAuth-klient:** Code Authorization (PKCE), redirect URI præcis lig widget-URL'en.
+4. **Proxy (hvis brugt):** `GC_REGION` og `GC_ORG_ID` er påkrævet. Sæt kun `ALLOWED_MODELS`, hvis agenterne skal kunne vælge andre modeller end standarden.
+5. **Data Action:** Request Body Template fra `CONTRACTS.md` (med `$esc.jsonString`), runtime `nodejs22.x`, og `allowedModels` kun efter behov.
+6. **Hosting:** eget (sub)domæne eller en dedikeret GitHub-organisation (se "Kendte begrænsninger").
+7. **Databehandling:** databehandleraftale med AI-udbyderen og en EU-region. Brug ikke Gemini API'ets gratis niveau til rigtige samtaler.
+
+### Trusler og håndtering
+
+| Trussel | Håndtering |
+|---|---|
+| Fremmede bruger organisationens AI-nøgler via proxy-URL'en (den er synlig i widget-URL'en) | Proxyen kræver agentens Genesys-token, validerer det mod `/api/v2/tokens/me` og kræver, at org-id'et matcher `GC_ORG_ID`. Uden konfiguration afvises alle kald. CORS spejler ikke vilkårlige origins. |
+| Misbrug af org-nøgler til dyre modeller eller store prompts | Proxy og Data Action tillader kun standardmodellen pr. udbyder, medmindre admin udvider med `ALLOWED_MODELS`/`allowedModels`. Prompten er begrænset til 120.000 tegn, og outputtet er begrænset. |
+| Serveren sender kald eller nøgler til en host, kalderen har valgt (SSRF) | Ollama-URL og Azure-endpoint kommer kun fra konfigurationen på serversiden. Et Azure-endpoint fra klienten accepteres kun sammen med klientens egen nøgle og kun på `*.openai.azure.com`/`*.cognitiveservices.azure.com`. |
+| Login-CSRF / token-injektion via et fremmed link | Kun Code Authorization med PKCE. `state` indeholder en engangs-nonce, der tjekkes ved retur. Et token i URL-fragmentet (Implicit Grant) ignoreres. |
+| Manipuleret conversationId omdirigerer API-kald (inkl. wrap-up-PATCH) | conversationId valideres som UUID fra alle kilder (URL, OAuth-state, sessionStorage, Opsætning) og igen før realtid, hent og wrap-up. |
+| Wrap-up skrives på den forkerte agent efter omstilling | Deltageren matches på `userId` fra `/api/v2/users/me`, og det seneste ben vælges. |
+| Prompt injection: kunden siger instruktioner, der ender i wrap-up | Transskriptionen står mellem `<transcript>`-tags, som ikke kan lukkes indefra, og modellen instrueres i kun at opsummere. Det mindsker risikoen men fjerner den ikke, så agenten bør læse resuméet igennem. |
+| Transskriptioner sendes til en ikke-godkendt udbyder | `orgLock=1` slår egne nøgler, egne overrides, direkte Ollama, lokal Whisper og Sammenlign fra, så kun admins org-vej bruges. |
+| Script-injektion i siden (XSS) | Al dynamisk tekst escapes før visning, også AI-svar. Content-Security-Policy tillader kun scripts fra samme origin, og I18N ligger i `i18n.js` i stedet for et inline-script. |
+| Persondata eller hemmeligheder efterlades på en delt agent-pc | OAuth-`code`/`state` maskeres i loggen, og tokens logges ikke. Den gemte log fra forrige session udløber efter 24 timer. Gemini-nøglen sendes i en header, ikke i URL'en. |
+| Andre sider på samme GitHub Pages-origin læser `localStorage` | Kan ikke løses i koden. Host widget'en på et eget domæne eller i en dedikeret GitHub-organisation. |
 
 ## Kendte begrænsninger
 - `transcripturl` kan først levere data et stykke tid efter samtalens afslutning — brug realtid, hvis resuméet skal være klar øjeblikkeligt.
