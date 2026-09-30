@@ -24,7 +24,7 @@
   h3{font-size:15px;margin:20px 0 6px}
   p{margin:0 0 12px}
   table{border-collapse:collapse;width:100%;margin:12px 0 16px;font-size:13.5px;background:var(--surface)}
-  th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+  th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top;overflow-wrap:anywhere}
   th{background:#EEF3F6;font-weight:650}
   code{font-family:var(--mono);font-size:12.5px;background:#EEF3F6;padding:1px 5px;border-radius:4px}
   .diagram{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px;margin:14px 0 22px;overflow-x:auto}
@@ -54,8 +54,8 @@
 </header>
 
 <p class="L"
- data-da="Widget'en er en Genesys Cloud Interaction Widget, der giver agenten samtalens fulde transskription i realtid og genererer et AI-resumé, som kan sættes ind i wrap-up-noterne, inden interaktionen afsluttes — også når kunden allerede har lagt på. Løsningen er 100 % statisk (index.html + app.js på GitHub Pages), uden egen backend; al autentifikation sker med agentens egen Genesys-session."
- data-en="The widget is a Genesys Cloud Interaction Widget that gives the agent the full call transcript in real time and generates an AI summary that can be pasted into the wrap-up notes before the interaction is completed — even after the customer has hung up. The solution is 100% static (index.html + app.js on GitHub Pages) with no backend of its own; all authentication uses the agent's own Genesys session."></p>
+ data-da="Widget'en er en Genesys Cloud Interaction Widget, der giver agenten samtalens fulde transskription i realtid og genererer et AI-resumé, som kan sættes ind i wrap-up-noterne, inden interaktionen afsluttes — også når kunden allerede har lagt på. Løsningen er 100 % statisk (index.html + app.js + i18n.js på GitHub Pages), uden egen backend; al autentifikation sker med agentens egen Genesys-session. Sikkerhedsmodellen er beskrevet i afsnit 9."
+ data-en="The widget is a Genesys Cloud Interaction Widget that gives the agent the full call transcript in real time and generates an AI summary that can be pasted into the wrap-up notes before the interaction is completed — even after the customer has hung up. The solution is 100% static (index.html + app.js + i18n.js on GitHub Pages) with no backend of its own; all authentication uses the agent's own Genesys session. The security model is described in section 9."></p>
 
 <h2 class="L" data-da="1. Arkitekturoverblik" data-en="1. Architecture Overview"></h2>
 <div class="diagram">
@@ -65,11 +65,11 @@
 <!-- Agent / widget -->
 <rect class="box box-w" x="20" y="140" width="190" height="130" rx="8"/>
 <text class="t-head" x="115" y="163" text-anchor="middle" >Interaction Widget</text>
-<text class="t-small" x="115" y="180" text-anchor="middle">index.html + app.js</text>
-<text class="t-small" x="115" y="195" text-anchor="middle">GitHub Pages (statisk)</text>
-<text class="t-small" x="115" y="215" text-anchor="middle">OAuth PKCE (SSO)</text>
+<text class="t-small" x="115" y="180" text-anchor="middle">index.html · app.js · i18n.js</text>
+<text class="t-small" x="115" y="195" text-anchor="middle">GitHub Pages (statisk, CSP)</text>
+<text class="t-small" x="115" y="215" text-anchor="middle">OAuth PKCE + state-nonce</text>
 <text class="t-small" x="115" y="230" text-anchor="middle">i18n: DA / EN / FR / DE</text>
-<text class="t-small" x="115" y="245" text-anchor="middle">localStorage-konfiguration</text>
+<text class="t-small" x="115" y="245" text-anchor="middle">org-standard / orgLock via URL</text>
 
 <!-- Genesys Cloud -->
 <rect class="box box-gc" x="290" y="30" width="280" height="240" rx="8"/>
@@ -90,7 +90,7 @@
 <!-- Proxy -->
 <rect class="box box-sec" x="290" y="300" width="280" height="60" rx="8"/>
 <text class="t-head" x="430" y="323" text-anchor="middle">Cloudflare Worker Proxy (valgfri)</text>
-<text class="t-mono" x="430" y="340" text-anchor="middle">POST /summarize · server-secrets vinder</text>
+<text class="t-mono" x="430" y="340" text-anchor="middle">POST /summarize · Genesys-token + org-id</text>
 
 <!-- AI providers -->
 <rect class="box box-ai" x="660" y="60" width="220" height="235" rx="8"/>
@@ -113,19 +113,19 @@
 <path class="arrow arrow-sec" d="M210 260 L 290 325"/>
 <text class="t-small" x="205" y="300">via proxy</text>
 <path class="arrow-dash arrow" d="M115 270 C 115 400, 640 400, 700 258"/>
-<text class="t-small" x="330" y="392">direkte (nøgle i browser — PoC)</text>
+<text class="t-small" x="290" y="392">direkte (nøgle i browser — PoC; slået fra ved orgLock=1)</text>
 <path class="arrow arrow-ai" d="M570 320 C 630 320, 640 250, 672 235"/>
 <path class="arrow arrow-ai" d="M555 186 L 675 150"/>
 </svg>
-<div class="cap L" data-da="Fig. 1 — Tre valgfrie AI-veje: direkte fra browser (PoC), via Cloudflare Worker, eller helt inde i Genesys via Function Data Action." data-en="Fig. 1 — Three optional AI paths: directly from the browser (PoC), via a Cloudflare Worker, or entirely inside Genesys via a Function Data Action."></div>
+<div class="cap L" data-da="Fig. 1 — Tre valgfrie AI-veje: direkte fra browser (PoC), via Cloudflare Worker (kræver agentens Genesys-token fra jeres org), eller helt inde i Genesys via Function Data Action. Med orgLock=1 er kun admins org-vej tilladt." data-en="Fig. 1 — Three optional AI paths: directly from the browser (PoC), via a Cloudflare Worker (requires the agent's Genesys token from your org), or entirely inside Genesys via a Function Data Action. With orgLock=1 only the admin's org path is allowed."></div>
 </div>
 
 <h2 class="L" data-da="2. Funktioner" data-en="2. Features"></h2>
 <table>
 <tr><th class="L" data-da="Funktion" data-en="Feature"></th><th class="L" data-da="Beskrivelse" data-en="Description"></th></tr>
 <tr><td class="L" data-da="Automatisk realtidstransskription" data-en="Automatic realtime transcription"></td>
-    <td class="L" data-da="Widget'en logger selv ind (lydløst SSO-redirect med loop-beskyttelse) og abonnerer på transskriptionstopic'et, når interaktionen åbnes. Agenten foretager sig intet. Kunde/agent adskilles pr. kanal (EXTERNAL/INTERNAL) med tidsstempler; interim-ytringer vises nedtonet."
-        data-en="The widget logs in by itself (silent SSO redirect with loop protection) and subscribes to the transcription topic when the interaction opens. The agent does nothing. Customer/agent are separated per channel (EXTERNAL/INTERNAL) with timestamps; interim utterances are dimmed."></td></tr>
+    <td class="L" data-da="Widget'en logger selv ind (lydløst SSO-redirect med loop-beskyttelse) og abonnerer på transskriptionstopic'et, når interaktionen åbnes. Agenten foretager sig intet. Kunde/agent adskilles pr. kanal (EXTERNAL/INTERNAL) med tidsstempler; interim-ytringer vises nedtonet. Fra v1.10.0: afbrydes WebSocket'en midt i samtalen, genopretter widget'en selv forbindelsen på en ny kanal (op til 5 forsøg med stigende ventetid) og beholder det allerede transskriberede. Kun beskeder for præcis denne samtales topic accepteres."
+        data-en="The widget logs in by itself (silent SSO redirect with loop protection) and subscribes to the transcription topic when the interaction opens. The agent does nothing. Customer/agent are separated per channel (EXTERNAL/INTERNAL) with timestamps; interim utterances are dimmed. Since v1.10.0: if the WebSocket drops mid-call, the widget reconnects on a new channel by itself (up to 5 attempts with increasing delay) and keeps what has already been transcribed. Only messages for exactly this conversation's topic are accepted."></td></tr>
 <tr><td class="L" data-da="Registrering af samtaleafslutning" data-en="Call-end detection"></td>
     <td class="L" data-da="SESSION_ENDED-hændelsen på topic'et fanges — agenten får besked om, at resuméet kan genereres, i samme øjeblik kunden lægger på."
         data-en="The SESSION_ENDED event on the topic is captured — the agent is notified that the summary can be generated the moment the customer hangs up."></td></tr>
@@ -133,17 +133,17 @@
     <td class="L" data-da="Fallback via Speech &amp; Text Analytics: transcripturl-endpointet giver hele transskriptionen efter samtalen (typisk klar efter 1-2 min.). Widget'en finder selv communicationId'er fra conversation-objektet."
         data-en="Fallback via Speech &amp; Text Analytics: the transcripturl endpoint returns the full transcript after the call (typically ready after 1-2 min). The widget resolves communicationIds from the conversation object automatically."></td></tr>
 <tr><td class="L" data-da="AI-resumé med fokuspunkter" data-en="AI summary with focus points"></td>
-    <td class="L" data-da="Fast struktur (årsag, hovedpunkter, aftaler, opfølgning) + frit definerede fokuspunkter (beløb, sagsnumre, GDPR-emner …), der injiceres i prompten. Resumésprog uafhængigt af UI-sprog."
-        data-en="Fixed structure (reason, key points, agreements, follow-ups) + freely defined focus points (amounts, case numbers, GDPR topics …) injected into the prompt. Summary language independent of UI language."></td></tr>
+    <td class="L" data-da="Fast struktur (årsag, hovedpunkter, aftaler, opfølgning) + frit definerede fokuspunkter (beløb, sagsnumre, GDPR-emner …), der injiceres i prompten. Admin kan sætte fælles org-fokuspunkter via <code>orgFocus</code> i widget-URL'en; de kommer altid med ud over agentens egne. Transskriptionen indkapsles i <code>&lt;transcript&gt;</code>-tags, og modellen instrueres i aldrig at følge instruktioner fra samtalen (værn mod prompt injection). Resumésprog uafhængigt af UI-sprog."
+        data-en="Fixed structure (reason, key points, agreements, follow-ups) + freely defined focus points (amounts, case numbers, GDPR topics …) injected into the prompt. Admin can set shared org focus points via <code>orgFocus</code> in the widget URL; they are always included in addition to the agent's own. The transcript is fenced in <code>&lt;transcript&gt;</code> tags and the model is told never to follow instructions from the call (prompt-injection guard). Summary language independent of UI language."></td></tr>
 <tr><td class="L" data-da="Fem AI-udbydere" data-en="Five AI providers"></td>
-    <td class="L" data-da="OpenAI, Gemini, Claude, Azure OpenAI (Copilot) og Ollama (lokal — gratis, data forlader ikke organisationen). Modelnavn/deployment konfigurerbart pr. udbyder."
-        data-en="OpenAI, Gemini, Claude, Azure OpenAI (Copilot) and Ollama (local — free, data never leaves the organisation). Model name/deployment configurable per provider."></td></tr>
+    <td class="L" data-da="OpenAI, Gemini, Claude, Azure OpenAI (Copilot) og Ollama (lokal — gratis, data forlader ikke organisationen). Modelnavn/deployment konfigurerbart pr. udbyder. Alle fem virker via alle tre AI-veje (Azure via proxy og Data Action fra v1.9.0). Gemini-standarden er <code>gemini-flash-latest</code> (gemini-2.0-flash blev lukket af Google 1. juni 2026)."
+        data-en="OpenAI, Gemini, Claude, Azure OpenAI (Copilot) and Ollama (local — free, data never leaves the organisation). Model name/deployment configurable per provider. All five work over all three AI paths (Azure via proxy and Data Action since v1.9.0). The Gemini default is <code>gemini-flash-latest</code> (gemini-2.0-flash was shut down by Google on 1 June 2026)."></td></tr>
 <tr><td class="L" data-da="Lokal Whisper som alternativ transskriptionskilde" data-en="Local Whisper as alternative transcript source"></td>
     <td class="L" data-da="Ved Hent kan Genesys' transcripturl erstattes af en lokalt kørende whisper.cpp-server: widget'en downloader optagelsen via Genesys' recording-API og sender lydkanalerne dertil — nyttigt hvis Voice Transcription ikke er licenseret/aktiveret."
         data-en="On Fetch, Genesys' transcripturl can be replaced by a locally running whisper.cpp server: the widget downloads the recording via Genesys' recording API and sends the audio channels there — useful if Voice Transcription isn't licensed/enabled."></td></tr>
 <tr><td class="L" data-da="Automatisk resumé + auto-indsættelse i wrap-up" data-en="Automatic summary + auto-insert into wrap-up"></td>
-    <td class="L" data-da="Valgfrit: resumé-generering starter automatisk ved SESSION_ENDED (før Done klikkes), og skrives direkte i Genesys' egne wrap-up notes via Conversations API, når det er færdigt — agenten skal intet gøre. Overlever ikke at widget-iframen reelt lukkes (browser-begrænsning); kræver evt. en wrapup-kode afhængig af kø-opsætning."
-        data-en="Optional: summary generation starts automatically on SESSION_ENDED (before Done is clicked), and is written straight into Genesys' own wrap-up notes via the Conversations API once done — no agent action needed. Does not survive the widget iframe actually being closed (browser limitation); may require a wrapup code depending on queue configuration."></td></tr>
+    <td class="L" data-da="Valgfrit: resumé-generering starter automatisk ved SESSION_ENDED (før Done klikkes), og skrives direkte i Genesys' egne wrap-up notes via Conversations API, når det er færdigt — agenten skal intet gøre. Overlever ikke at widget-iframen reelt lukkes (browser-begrænsning); kræver evt. en wrapup-kode afhængig af kø-opsætning. Fra v1.9.0 skrives noterne på den indloggede agents egen deltager (<code>participant.userId</code> = <code>/api/v2/users/me</code>) — ikke på en tidligere agent efter en omstilling."
+        data-en="Optional: summary generation starts automatically on SESSION_ENDED (before Done is clicked), and is written straight into Genesys' own wrap-up notes via the Conversations API once done — no agent action needed. Does not survive the widget iframe actually being closed (browser limitation); may require a wrapup code depending on queue configuration. Since v1.9.0 the notes are written on the logged-in agent's own participant (<code>participant.userId</code> = <code>/api/v2/users/me</code>) — not on a previous agent after a transfer."></td></tr>
 <tr><td class="L" data-da="Smart resumé-knap" data-en="Smart summary button"></td>
     <td class="L" data-da="&quot;Generér resumé&quot; er kun aktiv, når der reelt er noget nyt at opsummere — forhindrer dobbelt/redundant AI-kald, når auto-resumé allerede er kørt."
         data-en="&quot;Generate summary&quot; is only enabled when there is genuinely something new to summarise — prevents duplicate/redundant AI calls when auto-summary has already run."></td></tr>
@@ -151,14 +151,14 @@
     <td class="L" data-da="Valgfrit: skriver hver logline direkte til en fil på agentens pc via File System Access API, så hele forløbet er sporbart selv hvis widget'en lukkes midt i en generering. Virker kun uden for cross-origin iframes (Chrome/Edge) — skjules automatisk inde i selve Genesys-widget'en, hvor localStorage-baseret &quot;Hent forrige log&quot; er den fungerende fallback."
         data-en="Optional: writes every log line straight to a file on the agent's PC via the File System Access API, so the whole sequence is traceable even if the widget is closed mid-generation. Only works outside cross-origin iframes (Chrome/Edge) — automatically hidden inside the actual Genesys widget, where the localStorage-based &quot;Download previous log&quot; is the working fallback."></td></tr>
 <tr><td class="L" data-da="Sammenligning" data-en="Comparison"></td>
-    <td class="L" data-da="Én knap kører samme prompt parallelt på alle konfigurerede udbydere og viser resultaterne under hinanden med svartid — direkte kvalitets-/pris-/hastighedssammenligning på rigtige samtaler."
-        data-en="One button runs the same prompt in parallel on all configured providers and shows the results side by side with response times — direct quality/cost/speed comparison on real calls."></td></tr>
+    <td class="L" data-da="Én knap kører samme prompt parallelt på alle konfigurerede udbydere og viser resultaterne under hinanden med svartid — direkte kvalitets-/pris-/hastighedssammenligning på rigtige samtaler. Sender samme transskription til flere udbydere, og er derfor slået fra ved <code>orgLock=1</code>."
+        data-en="One button runs the same prompt in parallel on all configured providers and shows the results side by side with response times — direct quality/cost/speed comparison on real calls. Sends the same transcript to several providers and is therefore disabled under <code>orgLock=1</code>."></td></tr>
 <tr><td class="L" data-da="Nøglehåndtering i tre niveauer" data-en="Three-tier key management"></td>
-    <td class="L" data-da="1) Function Data Action: nøgler kun i Genesys Credentials (anbefalet, produktion). 2) Cloudflare Worker: nøgler som server-secrets. 3) Direkte: nøgler i browserens localStorage (kun PoC). Se afsnit 5."
-        data-en="1) Function Data Action: keys only in Genesys Credentials (recommended, production). 2) Cloudflare Worker: keys as server secrets. 3) Direct: keys in the browser's localStorage (PoC only). See section 5."></td></tr>
+    <td class="L" data-da="1) Function Data Action: nøgler kun i Genesys Credentials (anbefalet, produktion). 2) Cloudflare Worker: nøgler som server-secrets; kun agenter med et gyldigt Genesys-token fra jeres org får adgang. 3) Direkte: nøgler i browserens localStorage (kun PoC). Begge servervarianter tillader som udgangspunkt kun standardmodellen pr. udbyder. Se afsnit 5 og 9."
+        data-en="1) Function Data Action: keys only in Genesys Credentials (recommended, production). 2) Cloudflare Worker: keys as server secrets; only agents with a valid Genesys token from your org get access. 3) Direct: keys in the browser's localStorage (PoC only). Both server variants allow only the default model per provider by default. See sections 5 and 9."></td></tr>
 <tr><td class="L" data-da="Org-standard for AI-adgang, styret centralt af admin" data-en="Org default for AI access, centrally admin-controlled"></td>
-    <td class="L" data-da="Admin sætter én fælles AI-adgang for alle agenter via to ikke-hemmelige parametre på selve widget-URL'en i Genesys Admin: <code>orgActionId</code> (Data Action ID) eller <code>orgProxyUrl</code> — aldrig en rå API-nøgle, da URL'en er synlig for enhver agent. Agentens egen nøgle vinder altid, hvis den er sat; ellers bruges org-standarden automatisk. En tredje parameter, <code>cfgVersion</code>, lader admin nulstille alle agenters lokale nøgler/overrides på én gang blot ved at ændre et tal — ingen deploy, ingen agent-handling. Se afsnit 5."
-        data-en="Admin sets one shared AI access for all agents via two non-secret parameters on the widget URL itself in Genesys Admin: <code>orgActionId</code> (Data Action ID) or <code>orgProxyUrl</code> — never a raw API key, since the URL is visible to every agent. The agent's own key always wins if set; otherwise the org default is used automatically. A third parameter, <code>cfgVersion</code>, lets admin reset every agent's local keys/overrides at once just by changing a number — no deploy, no agent action. See section 5."></td></tr>
+    <td class="L" data-da="Admin sætter én fælles AI-adgang for alle agenter via to ikke-hemmelige parametre på selve widget-URL'en i Genesys Admin: <code>orgActionId</code> (Data Action ID) eller <code>orgProxyUrl</code> — aldrig en rå API-nøgle, da URL'en er synlig for enhver agent. Agentens egen nøgle vinder altid, hvis den er sat; ellers bruges org-standarden automatisk. En tredje parameter, <code>cfgVersion</code> (heltal), lader admin nulstille alle agenters lokale nøgler/overrides på én gang blot ved at hæve tallet — ingen deploy, ingen agent-handling. Fra v1.10.0 gør <code>orgLock=1</code> org-standarden til den <em>eneste</em> AI-vej: agentens egne nøgler og overrides, direkte Ollama, lokal Whisper og Sammenlign slås fra, og felterne vises låst. Se afsnit 5."
+        data-en="Admin sets one shared AI access for all agents via two non-secret parameters on the widget URL itself in Genesys Admin: <code>orgActionId</code> (Data Action ID) or <code>orgProxyUrl</code> — never a raw API key, since the URL is visible to every agent. The agent's own key always wins if set; otherwise the org default is used automatically. A third parameter, <code>cfgVersion</code> (integer), lets admin reset every agent's local keys/overrides at once just by raising the number — no deploy, no agent action. Since v1.10.0, <code>orgLock=1</code> makes the org default the <em>only</em> AI path: the agent's own keys and overrides, direct Ollama, local Whisper and Compare are disabled, and the fields are shown locked. See section 5."></td></tr>
 <tr><td class="L" data-da="Flersproget UI" data-en="Multilingual UI"></td>
     <td class="L" data-da="Dansk, engelsk, fransk, tysk — vælges automatisk ud fra {{gcLangTag}} eller manuelt."
         data-en="Danish, English, French, German — selected automatically from {{gcLangTag}} or manually."></td></tr>
@@ -179,17 +179,17 @@
 
 <path class="arrow" d="M90 50 L 296 50"/><text class="t-small" x="110" y="44">1. besvarer opkald → widget åbnes ({{gcConversationId}})</text>
 <path class="arrow arrow-gc" d="M300 80 L 556 80"/><text class="t-small" x="315" y="74">2. lydløst SSO-login (PKCE)</text>
-<path class="arrow-dash arrow" d="M560 105 L 304 105"/><text class="t-small" x="330" y="99">3. access_token (redirect tilbage)</text>
+<path class="arrow-dash arrow" d="M560 105 L 304 105"/><text class="t-small" x="315" y="99">3. code (redirect) → state-nonce tjekkes → token</text>
 <path class="arrow arrow-gc" d="M300 135 L 556 135"/><text class="t-small" x="315" y="129">4. POST notifications/channels + subscribe topic</text>
-<path class="arrow-dash arrow arrow-gc" d="M560 165 L 304 165"/><text class="t-small" x="330" y="159">5. WSS: transskript-ytringer (løbende, 3-5 s)</text>
+<path class="arrow-dash arrow arrow-gc" d="M560 165 L 304 165"/><text class="t-small" x="315" y="159">5. WSS: ytringer (3-5 s) · auto-genforbindelse</text>
 <path class="arrow-dash arrow arrow-gc" d="M560 200 L 304 200"/><text class="t-small" x="330" y="194">6. SESSION_ENDED (kunden lagde på)</text>
 <path class="arrow-dash arrow" d="M300 228 L 94 228"/><text class="t-small" x="112" y="222">7. "Resumé kan genereres nu"</text>
 <path class="arrow" d="M90 258 L 296 258"/><text class="t-small" x="110" y="252">8. klik: Generér resumé</text>
-<path class="arrow arrow-ai" d="M300 288 L 786 288"/><text class="t-small" x="330" y="282">9. prompt (transskript + fokuspunkter) via valgt vej</text>
+<path class="arrow arrow-ai" d="M300 288 L 786 288"/><text class="t-small" x="330" y="282">9. prompt (&lt;transcript&gt;-indkapslet + org-/agent-fokuspunkter) via valgt vej</text>
 <path class="arrow-dash arrow arrow-ai" d="M790 318 L 304 318"/><text class="t-small" x="330" y="312">10. struktureret resumé</text>
 <path class="arrow-dash arrow" d="M300 348 L 94 348"/><text class="t-small" x="100" y="342">11. kopiér → wrap-up-noter → Done</text>
 </svg>
-<div class="cap L" data-da="Fig. 2 — Trin 1-7 kræver ingen agenthandling. Transskriptionen er komplet i samme sekund kunden lægger på." data-en="Fig. 2 — Steps 1-7 require no agent action. The transcript is complete the moment the customer hangs up."></div>
+<div class="cap L" data-da="Fig. 2 — Trin 1-7 kræver ingen agenthandling. Transskriptionen er komplet i samme sekund kunden lægger på. Trin 3: kun et login, som denne fane selv har startet, accepteres (PKCE + state-nonce); Implicit Grant er fjernet i v1.9.0." data-en="Fig. 2 — Steps 1-7 require no agent action. The transcript is complete the moment the customer hangs up. Step 3: only a login started by this tab is accepted (PKCE + state nonce); Implicit Grant was removed in v1.9.0."></div>
 </div>
 
 <h2 class="L" data-da="4. Sekvens: hent i efterbehandling (fallback)" data-en="4. Sequence: fetch during wrap-up (fallback)"></h2>
@@ -222,13 +222,13 @@
 
 <rect class="box box-sec" x="60" y="105" width="230" height="70" rx="8"/>
 <text class="t-head" x="175" y="124" text-anchor="middle">1. Agentens egen nøgle?</text>
-<text class="t-small" x="175" y="141" text-anchor="middle">Sat → Direkte, altid</text>
-<text class="t-small" x="175" y="156" text-anchor="middle">(vinder over org-standard)</text>
+<text class="t-small" x="175" y="141" text-anchor="middle">Sat → Direkte (vinder over org-standard)</text>
+<text class="t-small" x="175" y="156" text-anchor="middle">ignoreres ved orgLock=1</text>
 
 <rect class="box box-sec" x="330" y="105" width="230" height="70" rx="8"/>
 <text class="t-head" x="445" y="124" text-anchor="middle">2. Action ID / Proxy?</text>
 <text class="t-small" x="445" y="141" text-anchor="middle">Agent-felt ELLER org-standard</text>
-<text class="t-small" x="445" y="156" text-anchor="middle">(orgActionId/orgProxyUrl i URL)</text>
+<text class="t-small" x="445" y="156" text-anchor="middle">(orgLock=1: kun org-standard)</text>
 
 <rect class="box" x="600" y="105" width="230" height="70" rx="8"/>
 <text class="t-head" x="715" y="128" text-anchor="middle">3. Ingen af delene</text>
@@ -239,13 +239,13 @@
 <path class="arrow" d="M440 55 L 443 102"/><text class="t-small" x="440" y="80">ellers</text>
 <path class="arrow" d="M505 55 L 690 102"/><text class="t-small" x="620" y="80">ellers</text>
 
-<rect class="box box-ai" x="330" y="225" width="230" height="50" rx="8"/>
+<rect class="box box-ai" x="305" y="225" width="280" height="50" rx="8"/>
 <text class="t-head" x="445" y="248" text-anchor="middle">OpenAI / Gemini / Claude / Azure / Ollama</text>
-<text class="t-small" x="445" y="264" text-anchor="middle">model + prompt m. fokuspunkter</text>
+<text class="t-small" x="445" y="264" text-anchor="middle">server: kun tilladte modeller · max 120.000 tegn</text>
 <path class="arrow arrow-ai" d="M175 175 C 175 230, 280 250, 327 250"/>
 <path class="arrow arrow-ai" d="M445 175 L 445 222"/>
 </svg>
-<div class="cap L" data-da="Fig. 4 — Agentens egen nøgle vinder altid; ellers bruges Data Action/Proxy, enten agentens eget felt eller admins org-standard fra widget-URL'en. Ny i v1.8.0: to-lags-modellen erstatter den tidligere rene Data Action &gt; Proxy &gt; Direkte-rækkefølge." data-en="Fig. 4 — The agent's own key always wins; otherwise Data Action/Proxy is used, either the agent's own field or admin's org default from the widget URL. New in v1.8.0: this two-layer model replaces the previous flat Data Action &gt; Proxy &gt; Direct order."></div>
+<div class="cap L" data-da="Fig. 4 — Agentens egen nøgle vinder; ellers bruges Data Action/Proxy, enten agentens eget felt eller admins org-standard fra widget-URL'en (to-lags-modellen fra v1.8.0). Fra v1.10.0 springes trin 1 og agentens egne felter i trin 2 over, når admin har sat orgLock=1 — så kan transskriptionen kun sendes via den godkendte org-vej." data-en="Fig. 4 — The agent's own key wins; otherwise Data Action/Proxy is used, either the agent's own field or admin's org default from the widget URL (the two-layer model from v1.8.0). Since v1.10.0, step 1 and the agent's own fields in step 2 are skipped when admin has set orgLock=1 — the transcript can then only be sent via the approved org path."></div>
 </div>
 
 <table>
@@ -255,27 +255,28 @@
     <th class="L" data-da="Overvejelser" data-en="Considerations"></th></tr>
 <tr><td>Function Data Action</td>
     <td class="L" data-da="Genesys-integrationens Credentials-tab" data-en="The Genesys integration's Credentials tab"></td>
-    <td class="L" data-da="Ingen ekstra infrastruktur; nøgler forlader aldrig Genesys; adgang styres af Genesys-permissions (integrations:action:execute); fuld audit i Genesys" data-en="No extra infrastructure; keys never leave Genesys; access governed by Genesys permissions (integrations:action:execute); full audit inside Genesys"></td>
-    <td class="L" data-da="Timeout-loft på data actions; Ollama kræver offentligt/tunneleret endpoint" data-en="Data action timeout ceiling; Ollama requires a public/tunneled endpoint"></td></tr>
+    <td class="L" data-da="Ingen ekstra infrastruktur; nøgler forlader aldrig Genesys; adgang styres af Genesys-permissions (integrations:action:execute); fuld audit i Genesys; model-allowlist via credential <code>allowedModels</code>; Azure-endpoint kun fra credentials" data-en="No extra infrastructure; keys never leave Genesys; access governed by Genesys permissions (integrations:action:execute); full audit inside Genesys; model allowlist via the <code>allowedModels</code> credential; Azure endpoint from credentials only"></td>
+    <td class="L" data-da="Timeout-loft på data actions; Ollama kræver offentligt/tunneleret endpoint; Request Body Template skal bruge <code>$esc.jsonString(...)</code>; runtime <code>nodejs22.x</code>" data-en="Data action timeout ceiling; Ollama requires a public/tunneled endpoint; the Request Body Template must use <code>$esc.jsonString(...)</code>; runtime <code>nodejs22.x</code>"></td></tr>
 <tr><td>Cloudflare Worker</td>
     <td class="L" data-da="Worker-secrets (wrangler secret put)" data-en="Worker secrets (wrangler secret put)"></td>
-    <td class="L" data-da="Uafhængig af Genesys; origin-lås + delt token; keySource i svaret viser hvilken nøgle der blev brugt" data-en="Independent of Genesys; origin lock + shared token; keySource in the response shows which key was used"></td>
-    <td class="L" data-da="Ekstern komponent at drifte; Ollama skal kunne nås fra Cloudflare" data-en="External component to operate; Ollama must be reachable from Cloudflare"></td></tr>
+    <td class="L" data-da="Uafhængig af Genesys; agentens Genesys-token valideres mod <code>/api/v2/tokens/me</code>, og org-id'et skal matche <code>GC_ORG_ID</code>; model-allowlist via <code>ALLOWED_MODELS</code>; keySource i svaret viser hvilken nøgle der blev brugt" data-en="Independent of Genesys; the agent's Genesys token is validated against <code>/api/v2/tokens/me</code> and the org id must match <code>GC_ORG_ID</code>; model allowlist via <code>ALLOWED_MODELS</code>; keySource in the response shows which key was used"></td>
+    <td class="L" data-da="Ekstern komponent at drifte; kræver secrets <code>GC_REGION</code> og <code>GC_ORG_ID</code> (ellers afvises alle kald); Ollama kun via <code>OLLAMA_URL</code>, som skal kunne nås fra Cloudflare" data-en="External component to operate; requires the <code>GC_REGION</code> and <code>GC_ORG_ID</code> secrets (otherwise every call is rejected); Ollama only via <code>OLLAMA_URL</code>, which must be reachable from Cloudflare"></td></tr>
 <tr><td class="L" data-da="Direkte" data-en="Direct"></td>
     <td class="L" data-da="Browserens localStorage" data-en="The browser's localStorage"></td>
     <td class="L" data-da="Nul opsætning — hurtigste vej til pilot; Ollama på localhost virker" data-en="Zero setup — fastest path to a pilot; Ollama on localhost works"></td>
-    <td class="L" data-da="Nøgler synlige for agenten — kun til PoC" data-en="Keys visible to the agent — PoC only"></td></tr>
+    <td class="L" data-da="Nøgler synlige for agenten — kun til PoC; kan slås fra centralt med <code>orgLock=1</code>" data-en="Keys visible to the agent — PoC only; can be disabled centrally with <code>orgLock=1</code>"></td></tr>
 </table>
 
 <h2 class="L" data-da="6. Komponenter og filer" data-en="6. Components and files"></h2>
 <table>
 <tr><th class="L" data-da="Fil" data-en="File"></th><th class="L" data-da="Rolle" data-en="Role"></th></tr>
-<tr><td><code>index.html</code></td><td class="L" data-da="UI, styling og i18n-ordbog (4 sprog). Tre faner: Transskription, Resumé, Opsætning." data-en="UI, styling and i18n dictionary (4 languages). Three tabs: Transcript, Summary, Setup."></td></tr>
-<tr><td><code>app.js</code></td><td class="L" data-da="Al logik: OAuth, WebSocket-realtid, transcripturl-hentning, AI-kald (5 udbydere, 3 veje), sammenligning, clipboard, konfiguration." data-en="All logic: OAuth, WebSocket realtime, transcripturl fetching, AI calls (5 providers, 3 paths), comparison, clipboard, configuration."></td></tr>
-<tr><td><code>proxy-worker.js</code></td><td class="L" data-da="Cloudflare Worker: POST /summarize, server-secrets med forrang, origin-/token-hærdning, Ollama-videresendelse." data-en="Cloudflare Worker: POST /summarize, server secrets take precedence, origin/token hardening, Ollama forwarding."></td></tr>
-<tr><td><code>gc-function/src/index.js</code></td><td class="L" data-da="Function Data Action-handler (nodejs20.x). Nøgler injiceres via Request Body Template fra Credentials-tab." data-en="Function Data Action handler (nodejs20.x). Keys injected via the Request Body Template from the Credentials tab."></td></tr>
+<tr><td><code>index.html</code></td><td class="L" data-da="UI og styling med Content-Security-Policy (<code>script-src 'self'</code>). Fire faner: Transskription, Resumé, Opsætning, Log." data-en="UI and styling with a Content-Security-Policy (<code>script-src 'self'</code>). Four tabs: Transcript, Summary, Setup, Log."></td></tr>
+<tr><td><code>i18n.js</code></td><td class="L" data-da="UI-tekster på 4 sprog (DA/EN/FR/DE). Egen fil fra v1.10.0, så index.html ikke behøver inline-scripts. Skal uploades sammen med index.html og app.js." data-en="UI strings in 4 languages (DA/EN/FR/DE). A separate file since v1.10.0 so index.html needs no inline scripts. Must be uploaded together with index.html and app.js."></td></tr>
+<tr><td><code>app.js</code></td><td class="L" data-da="Al logik: OAuth (PKCE + state-nonce), WebSocket-realtid med genforbindelse, transcripturl-/Whisper-hentning, AI-kald (5 udbydere, 3 veje), org-standard/orgLock, sammenligning, auto-wrap-up, log/statistik, konfiguration." data-en="All logic: OAuth (PKCE + state nonce), WebSocket realtime with reconnect, transcripturl/Whisper fetching, AI calls (5 providers, 3 paths), org default/orgLock, comparison, auto wrap-up, log/stats, configuration."></td></tr>
+<tr><td><code>proxy-worker.js</code></td><td class="L" data-da="Cloudflare Worker: POST /summarize, validering af Genesys-token og org-id, server-secrets med forrang, model-allowlist, Azure med server-side endpoint, Ollama kun via OLLAMA_URL." data-en="Cloudflare Worker: POST /summarize, Genesys token and org id validation, server secrets take precedence, model allowlist, Azure with server-side endpoint, Ollama only via OLLAMA_URL."></td></tr>
+<tr><td><code>index.js</code> · <code>function-ai-summary/src/index.js</code></td><td class="L" data-da="Function Data Action-handler (nodejs22.x), to identiske kopier. Nøgler injiceres via Request Body Template fra Credentials-tab; model-allowlist og promptgrænse." data-en="Function Data Action handler (nodejs22.x), two identical copies. Keys injected via the Request Body Template from the Credentials tab; model allowlist and prompt limit."></td></tr>
 <tr><td><code>function-ai-summary.zip</code></td><td class="L" data-da="Færdigpakket funktion, klar til upload i integrationen." data-en="Pre-packaged function, ready to upload in the integration."></td></tr>
-<tr><td><code>gc-function/CONTRACTS.md</code></td><td class="L" data-da="Input-/output-kontrakter, Request Body Template og translation map til copy/paste." data-en="Input/output contracts, Request Body Template and translation map for copy/paste."></td></tr>
+<tr><td><code>CONTRACTS.md</code></td><td class="L" data-da="Input-/output-kontrakter, Request Body Template (med <code>$esc.jsonString</code>) og translation map til copy/paste." data-en="Input/output contracts, Request Body Template (with <code>$esc.jsonString</code>) and translation map for copy/paste."></td></tr>
 <tr><td><code>SYSTEM.html</code></td><td class="L" data-da="Dette dokument (DA/EN)." data-en="This document (DA/EN)."></td></tr>
 </table>
 
@@ -287,7 +288,13 @@
 <tr><td>Permissions</td>
     <td><code>conversation:transcription:view</code> · <code>speechAndTextAnalytics:data:view</code> · <code>recording:recording:view</code> · <code>integrations:action:execute</code> <span class="L" data-da="(kun ved Data Action-vejen)" data-en="(Data Action path only)"></span></td></tr>
 <tr><td>OAuth</td>
-    <td class="L" data-da="Code Authorization-klient (PKCE) med widget-URL som redirect URI; scopes: conversations, speech-and-text-analytics, notifications (+ integrations ved Data Action)." data-en="Code Authorization (PKCE) client with the widget URL as redirect URI; scopes: conversations, speech-and-text-analytics, notifications (+ integrations for the Data Action path)."></td></tr>
+    <td class="L" data-da="Code Authorization-klient (PKCE) med widget-URL som redirect URI; scopes: conversations, speech-and-text-analytics, notifications (+ integrations ved Data Action). Implicit Grant understøttes ikke fra v1.9.0." data-en="Code Authorization (PKCE) client with the widget URL as redirect URI; scopes: conversations, speech-and-text-analytics, notifications (+ integrations for the Data Action path). Implicit Grant is not supported since v1.9.0."></td></tr>
+<tr><td class="L" data-da="Widget-URL (valgfri parametre)" data-en="Widget URL (optional parameters)"></td>
+    <td class="L" data-da="<code>orgActionId</code> / <code>orgProxyUrl</code> (org-standard), <code>cfgVersion</code> (heltal, nulstil agenters lokale indstillinger), <code>orgLock=1</code> (kun org-vejen), <code>orgFocus</code> (fælles fokuspunkter, URL-encoded). Ingen af dem må indeholde hemmeligheder — URL'en er synlig for alle agenter." data-en="<code>orgActionId</code> / <code>orgProxyUrl</code> (org default), <code>cfgVersion</code> (integer, reset agents' local settings), <code>orgLock=1</code> (org path only), <code>orgFocus</code> (shared focus points, URL-encoded). None of them may contain secrets — the URL is visible to every agent."></td></tr>
+<tr><td class="L" data-da="Proxy (hvis brugt)" data-en="Proxy (if used)"></td>
+    <td class="L" data-da="Secrets <code>GC_REGION</code> og <code>GC_ORG_ID</code> (påkrævet), udbyder-nøgler, evt. <code>ALLOWED_MODELS</code>, <code>OLLAMA_URL</code>, <code>AZURE_OPENAI_*</code>, <code>ALLOWED_ORIGIN</code>." data-en="Secrets <code>GC_REGION</code> and <code>GC_ORG_ID</code> (required), provider keys, optionally <code>ALLOWED_MODELS</code>, <code>OLLAMA_URL</code>, <code>AZURE_OPENAI_*</code>, <code>ALLOWED_ORIGIN</code>."></td></tr>
+<tr><td>Hosting</td>
+    <td class="L" data-da="Eget (sub)domæne eller en dedikeret GitHub-organisation anbefales: alle sider under samme <code>&lt;bruger&gt;.github.io</code> deler origin og dermed localStorage. Whisper/Ollama på en anden maskine skal tilgås via HTTPS (CSP tillader kun http til localhost)." data-en="An own (sub)domain or a dedicated GitHub organisation is recommended: all pages under the same <code>&lt;user&gt;.github.io</code> share an origin and therefore localStorage. Whisper/Ollama on another machine must be reached over HTTPS (the CSP only allows http to localhost)."></td></tr>
 <tr><td>Widget</td>
     <td class="L" data-da="Interaction Widget-integration med URL-interpolation {{gcConversationId}} og {{gcLangTag}}; sandbox: allow-scripts, allow-same-origin, allow-forms, allow-popups, <strong>allow-downloads</strong> (krævet for log-/CSV-download — uden den fejler filnedhentning stille i en cross-origin iframe); feature: clipboard-write." data-en="Interaction Widget integration with {{gcConversationId}} and {{gcLangTag}} URL interpolation; sandbox: allow-scripts, allow-same-origin, allow-forms, allow-popups, <strong>allow-downloads</strong> (required for log/CSV downloads — without it, file downloads fail silently in a cross-origin iframe); feature: clipboard-write."></td></tr>
 </table>
@@ -342,11 +349,42 @@
     <td class="L" data-da="Genesys er her MCP-klient — det er handlings-orkestrering, ikke transskript-adgang. Genesys Copilot har i øvrigt egen indbygget (licenseret) samtaleopsummering som alternativ til denne widget." data-en="Genesys is the MCP client here — this is action orchestration, not transcript access. Note that Genesys Copilot also offers its own built-in (licensed) call summarisation as an alternative to this widget."></td></tr>
 </table>
 
-<div class="note L"
- data-da="Databeskyttelse: Med Ollama-vejen (direkte eller via intern server) forlader hverken transskript eller resumé organisationens infrastruktur. Med Data Action-/proxy-vejen sendes transskriptet til den valgte cloud-AI-udbyder — afklar databehandleraftale og region (EU-endpoints) inden produktion."
- data-en="Data protection: With the Ollama path (direct or via an internal server), neither transcript nor summary ever leaves the organisation's infrastructure. With the Data Action/proxy path, the transcript is sent to the chosen cloud AI provider — clarify DPA and region (EU endpoints) before production."></div>
+<h2 class="L" data-da="9. Sikkerhedsmodel" data-en="9. Security model"></h2>
 
-<footer>Genesys Transcript &amp; AI Summary Widget · v1.8.0 · Sabio / skndkprivat</footer>
+<p class="L"
+ data-da="Tabellen samler de trusler, løsningen er designet imod, og hvordan de håndteres (v1.9.0 og v1.10.0). Widget'en har ingen egen backend; de to valgfrie serverkomponenter (Worker og Function Data Action) er de eneste steder, hvor organisationens AI-nøgler findes."
+ data-en="The table collects the threats the solution is designed against and how they are handled (v1.9.0 and v1.10.0). The widget has no backend of its own; the two optional server components (Worker and Function Data Action) are the only places where the organisation's AI keys exist."></p>
+<table>
+<tr><th class="L" data-da="Trussel" data-en="Threat"></th><th class="L" data-da="Håndtering" data-en="Mitigation"></th></tr>
+<tr><td class="L" data-da="Fremmede bruger organisationens AI-nøgler via proxy-URL'en (den er synlig i widget-URL'en)" data-en="Outsiders use the organisation's AI keys via the proxy URL (it is visible in the widget URL)"></td>
+    <td class="L" data-da="Proxyen kræver agentens Genesys-token, validerer det mod <code>/api/v2/tokens/me</code> og kræver, at org-id'et matcher <code>GC_ORG_ID</code>. Uden konfiguration afvises alle kald (fail closed). CORS spejler ikke længere vilkårlige origins." data-en="The proxy requires the agent's Genesys token, validates it against <code>/api/v2/tokens/me</code> and requires the org id to match <code>GC_ORG_ID</code>. Without configuration every call is rejected (fail closed). CORS no longer reflects arbitrary origins."></td></tr>
+<tr><td class="L" data-da="Misbrug af org-nøgler til dyre modeller eller store prompts" data-en="Abuse of org keys for expensive models or huge prompts"></td>
+    <td class="L" data-da="Proxy og Data Action tillader kun standardmodellen pr. udbyder, medmindre admin udvider med <code>ALLOWED_MODELS</code>/<code>allowedModels</code>. Prompt max 120.000 tegn; outputtet er begrænset." data-en="Proxy and Data Action allow only the default model per provider unless admin extends it with <code>ALLOWED_MODELS</code>/<code>allowedModels</code>. Prompt max 120,000 characters; output is capped."></td></tr>
+<tr><td class="L" data-da="Serveren sender kald eller nøgler til en host, kalderen har valgt (SSRF)" data-en="The server sends calls or keys to a host chosen by the caller (SSRF)"></td>
+    <td class="L" data-da="Ollama-URL og Azure-endpoint kommer kun fra server-side konfiguration. Et Azure-endpoint fra klienten accepteres kun sammen med klientens egen nøgle og kun på <code>*.openai.azure.com</code>/<code>*.cognitiveservices.azure.com</code>." data-en="The Ollama URL and Azure endpoint come only from server-side configuration. A client-supplied Azure endpoint is accepted only together with the client's own key and only on <code>*.openai.azure.com</code>/<code>*.cognitiveservices.azure.com</code>."></td></tr>
+<tr><td class="L" data-da="Login-CSRF / token-injektion via et fremmed link" data-en="Login CSRF / token injection via a crafted link"></td>
+    <td class="L" data-da="Kun Code Authorization med PKCE. <code>state</code> indeholder en engangs-nonce, der tjekkes ved retur; et token i URL-fragmentet (Implicit Grant) ignoreres." data-en="Code Authorization with PKCE only. <code>state</code> carries a one-time nonce that is checked on return; a token in the URL fragment (Implicit Grant) is ignored."></td></tr>
+<tr><td class="L" data-da="Manipuleret conversationId omdirigerer API-kald (inkl. wrap-up-PATCH)" data-en="Manipulated conversationId redirects API calls (incl. the wrap-up PATCH)"></td>
+    <td class="L" data-da="conversationId valideres som UUID fra alle kilder (URL, OAuth-state, sessionStorage, Opsætning) og igen før realtid, hent og wrap-up." data-en="conversationId is validated as a UUID from every source (URL, OAuth state, sessionStorage, Setup) and again before realtime, fetch and wrap-up."></td></tr>
+<tr><td class="L" data-da="Wrap-up skrives på den forkerte agent efter omstilling" data-en="Wrap-up written on the wrong agent after a transfer"></td>
+    <td class="L" data-da="Deltageren matches på <code>userId</code> fra <code>/api/v2/users/me</code>; seneste ben vælges." data-en="The participant is matched on <code>userId</code> from <code>/api/v2/users/me</code>; the latest leg is chosen."></td></tr>
+<tr><td class="L" data-da="Prompt injection — kunden siger instruktioner, der ender i wrap-up" data-en="Prompt injection — the caller speaks instructions that end up in wrap-up"></td>
+    <td class="L" data-da="Transskriptionen indkapsles i <code>&lt;transcript&gt;</code>-tags, som ikke kan lukkes indefra, og modellen instrueres i kun at opsummere. Værnet mindsker risikoen, men fjerner den ikke — agenten bør læse resuméet igennem." data-en="The transcript is fenced in <code>&lt;transcript&gt;</code> tags that cannot be closed from inside, and the model is instructed to only summarise. This reduces the risk but does not remove it — the agent should read the summary."></td></tr>
+<tr><td class="L" data-da="Transskriptioner sendes til en ikke-godkendt udbyder" data-en="Transcripts sent to a non-approved provider"></td>
+    <td class="L" data-da="<code>orgLock=1</code> slår egne nøgler, egne overrides, direkte Ollama, lokal Whisper og Sammenlign fra, så kun admins org-vej bruges." data-en="<code>orgLock=1</code> disables own keys, own overrides, direct Ollama, local Whisper and Compare, so only the admin's org path is used."></td></tr>
+<tr><td class="L" data-da="Script-injektion i siden (XSS)" data-en="Script injection into the page (XSS)"></td>
+    <td class="L" data-da="Al dynamisk tekst escapes før visning (også AI-svar). Content-Security-Policy tillader kun scripts fra samme origin; I18N ligger i <code>i18n.js</code> i stedet for et inline-script." data-en="All dynamic text is escaped before display (including AI responses). The Content-Security-Policy only allows scripts from the same origin; I18N lives in <code>i18n.js</code> instead of an inline script."></td></tr>
+<tr><td class="L" data-da="Persondata/hemmeligheder efterlades på en delt agent-pc" data-en="Personal data/secrets left behind on a shared agent PC"></td>
+    <td class="L" data-da="OAuth-<code>code</code>/<code>state</code> maskeres i loggen, og tokens logges ikke. Den gemte log fra forrige session udløber efter 24 timer. Gemini-nøglen sendes i en header, ikke i URL'en." data-en="OAuth <code>code</code>/<code>state</code> are masked in the log and tokens are not logged. The saved log from the previous session expires after 24 hours. The Gemini key is sent in a header, not in the URL."></td></tr>
+<tr><td class="L" data-da="Andre sider på samme GitHub Pages-origin læser localStorage" data-en="Other pages on the same GitHub Pages origin read localStorage"></td>
+    <td class="L" data-da="Kan ikke løses i koden. Host widget'en på et eget domæne eller i en dedikeret GitHub-organisation (se afsnit 7, Hosting)." data-en="Cannot be solved in code. Host the widget on its own domain or in a dedicated GitHub organisation (see section 7, Hosting)."></td></tr>
+</table>
+
+<div class="note L"
+ data-da="Databeskyttelse: Med Ollama-vejen (direkte eller via intern server) forlader hverken transskript eller resumé organisationens infrastruktur. Med Data Action-/proxy-vejen sendes transskriptet til den valgte cloud-AI-udbyder — afklar databehandleraftale og region (EU-endpoints, fx Azure OpenAI i en EU-region) inden produktion. Brug ikke Gemini API'ets gratis niveau til rigtige samtaler: her må Google bruge data til at forbedre sine produkter."
+ data-en="Data protection: With the Ollama path (direct or via an internal server), neither transcript nor summary ever leaves the organisation's infrastructure. With the Data Action/proxy path, the transcript is sent to the chosen cloud AI provider — clarify the DPA and region (EU endpoints, e.g. Azure OpenAI in an EU region) before production. Don't use the Gemini API free tier for real calls: there Google may use data to improve its products."></div>
+
+<footer>Genesys Transcript &amp; AI Summary Widget · v1.10.0 · Sabio / skndkprivat</footer>
 
 <script>
 function setLang(l){
