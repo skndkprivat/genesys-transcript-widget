@@ -34,6 +34,14 @@
  * Optional:
  *   npx wrangler secret put ALLOWED_ORIGIN   e.g. https://skndkprivat.github.io
  *   (restricts browser CORS; NOT an access control — the token check is)
+ *   npx wrangler secret put ALLOWED_MODELS   e.g. gpt-4o-mini,claude-sonnet-4-5,gpt-4o
+ *   (comma-separated model/deployment names callers may request. Unset =
+ *    only the default model per provider (DEFAULT_MODELS below, or
+ *    AZURE_OPENAI_DEPLOYMENT / OLLAMA_MODEL) — so an agent can't switch
+ *    the org's key to an expensive model.)
+ *   npx wrangler secret put OLLAMA_URL       Ollama is only served via this
+ *   server-side URL (a client-supplied URL would let callers make the
+ *   Worker POST to arbitrary hosts).
  *
  * Endpoint:
  *   POST /summarize   (Authorization: Bearer <Genesys token>)
@@ -43,11 +51,31 @@
 
 const DEFAULT_MODELS = {
   openai: "gpt-4o-mini",
-  gemini: "gemini-2.0-flash",
+  gemini: "gemini-flash-latest",
   claude: "claude-sonnet-4-5",
   ollama: "llama3.1"
 };
 const PROVIDERS = ["openai", "gemini", "claude", "azure", "ollama"];
+const MAX_PROMPT_CHARS = 120000; // ~1 hour of call transcript with headroom
+const MAX_OUTPUT_TOKENS = 1000;
+
+/* Default model for a provider, taking server-side overrides into account. */
+function defaultModel(provider, env) {
+  if (provider === "azure") return env.AZURE_OPENAI_DEPLOYMENT || "";
+  if (provider === "ollama") return env.OLLAMA_MODEL || DEFAULT_MODELS.ollama;
+  return DEFAULT_MODELS[provider];
+}
+/* A requested model is allowed if it is the provider default, or listed in
+   ALLOWED_MODELS. Empty request = default. */
+function resolveModel(provider, requested, env) {
+  const def = defaultModel(provider, env);
+  const model = (requested || def || "").trim();
+  if (!model) return { error: `No model configured for '${provider}'` };
+  if (!/^[\w.:-]+$/.test(model)) return { error: "Invalid model name" };
+  const allowed = (env.ALLOWED_MODELS || "").split(",").map(s => s.trim()).filter(Boolean);
+  if (model !== def && !allowed.includes(model)) return { error: `Model '${model}' is not allowed by this proxy (see ALLOWED_MODELS)` };
+  return { model };
+}
 
 /* Validated-token cache (per Worker isolate), keyed by SHA-256 of the
    token so raw tokens are never kept in memory longer than the request. */
@@ -125,21 +153,23 @@ export default {
     let body;
     try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
 
-    const provider = (body.provider || "").toLowerCase();
-    const prompt = body.prompt || "";
-    const model = body.model || DEFAULT_MODELS[provider];
+    const provider = String(body.provider || "").toLowerCase();
+    const prompt = typeof body.prompt === "string" ? body.prompt : "";
     if (!PROVIDERS.includes(provider)) return json({ error: "Unknown provider: " + provider }, 400);
     if (!prompt) return json({ error: "Missing prompt" }, 400);
-    if (prompt.length > 200000) return json({ error: "Prompt too large" }, 413);
+    if (prompt.length > MAX_PROMPT_CHARS) return json({ error: `Prompt too large (max ${MAX_PROMPT_CHARS} chars)` }, 413);
+    const resolved = resolveModel(provider, typeof body.model === "string" ? body.model : "", env);
+    if (resolved.error) return json({ error: resolved.error }, 400);
+    const model = resolved.model;
 
-    /* ---- Ollama: no API key. Server-side OLLAMA_URL wins over the
-       widget-provided ollamaUrl (same precedence rule as the keys).
-       Note: the Ollama host must be reachable FROM the Worker, i.e. a
+    /* ---- Ollama: no API key. Only the server-side OLLAMA_URL is used —
+       a widget-provided URL would turn the Worker into an open POST relay
+       (SSRF). The Ollama host must be reachable FROM the Worker, i.e. a
        server with a public/tunneled URL (cloudflared tunnel, Tailscale
        Funnel, on-prem reverse proxy) — not an agent's localhost. */
     if (provider === "ollama") {
-      const base = (env.OLLAMA_URL || body.ollamaUrl || "").replace(/\/$/, "");
-      if (!base) return json({ error: "No Ollama URL — set OLLAMA_URL in the proxy or an URL in the widget." }, 400);
+      const base = (env.OLLAMA_URL || "").replace(/\/$/, "");
+      if (!base) return json({ error: "No Ollama URL — set the OLLAMA_URL secret in the proxy." }, 400);
       try {
         const r = await fetch(base + "/api/chat", {
           method: "POST",
@@ -148,7 +178,7 @@ export default {
         });
         const d = await r.json();
         if (!r.ok) return json({ error: d.error || ("Ollama " + r.status) }, r.status);
-        return json({ text: (d.message?.content || "").trim(), keySource: env.OLLAMA_URL ? "server" : "client" });
+        return json({ text: (d.message?.content || "").trim(), keySource: "server" });
       } catch (e) {
         return json({ error: "Ollama unreachable: " + e.message }, 502);
       }
@@ -172,7 +202,9 @@ export default {
         const r = await fetch("https://api.openai.com/v1/chat/completions", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: "Bearer " + key },
-          body: JSON.stringify({ model, messages: [{ role: "user", content: prompt }], max_tokens: 1000 })
+          // max_completion_tokens works for both classic and reasoning (gpt-5/o-series) models;
+          // reasoning models spend part of it on hidden reasoning, hence the headroom
+          body: JSON.stringify({ model, messages: [{ role: "user", content: prompt }], max_completion_tokens: MAX_OUTPUT_TOKENS * 4 })
         });
         const d = await r.json();
         if (!r.ok) return json({ error: d.error?.message || ("OpenAI " + r.status) }, r.status);
@@ -180,11 +212,12 @@ export default {
 
       } else if (provider === "gemini") {
         const r = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
           {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+            // key in a header, not the URL — URLs end up in logs
+            headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+            body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: MAX_OUTPUT_TOKENS } })
           }
         );
         const d = await r.json();
@@ -195,7 +228,7 @@ export default {
         /* With the server key, ONLY the server endpoint is used — a
            client-chosen endpoint must never receive the org's key. */
         const endpoint = (serverKey ? env.AZURE_OPENAI_ENDPOINT : body.azureEndpoint) || "";
-        const deployment = body.model || env.AZURE_OPENAI_DEPLOYMENT || "";
+        const deployment = model;
         const apiVersion = (serverKey ? env.AZURE_OPENAI_API_VERSION : body.azureApiVersion) || "2024-08-01-preview";
         if (!endpoint) return json({ error: "No Azure endpoint — set AZURE_OPENAI_ENDPOINT in the proxy." }, 400);
         if (!validAzureEndpoint(endpoint)) return json({ error: "Azure endpoint must be https://<resource>.openai.azure.com" }, 400);
@@ -203,7 +236,7 @@ export default {
         const r = await fetch(`${endpoint.replace(/\/$/, "")}/openai/deployments/${encodeURIComponent(deployment)}/chat/completions?api-version=${encodeURIComponent(apiVersion)}`, {
           method: "POST",
           headers: { "Content-Type": "application/json", "api-key": key },
-          body: JSON.stringify({ messages: [{ role: "user", content: prompt }], max_tokens: 1000 })
+          body: JSON.stringify({ messages: [{ role: "user", content: prompt }], max_tokens: MAX_OUTPUT_TOKENS })
         });
         const d = await r.json();
         if (!r.ok) return json({ error: d.error?.message || ("Azure " + r.status) }, r.status);
@@ -213,7 +246,7 @@ export default {
         const r = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
           headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
-          body: JSON.stringify({ model, max_tokens: 1000, messages: [{ role: "user", content: prompt }] })
+          body: JSON.stringify({ model, max_tokens: MAX_OUTPUT_TOKENS, messages: [{ role: "user", content: prompt }] })
         });
         const d = await r.json();
         if (!r.ok) return json({ error: d.error?.message || ("Anthropic " + r.status) }, r.status);

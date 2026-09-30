@@ -2,7 +2,7 @@
 
 Interaction Widget til Genesys Cloud, der viser samtalens transskription og genererer et AI-resumé, som agenten kan sætte ind i wrap-up-noter **inden** der trykkes *Done* — også når kunden har lagt på.
 
-Flad filstruktur (`index.html` + `app.js`) — kan uploades direkte via GitHub-webinterfacet og hostes på GitHub Pages.
+Flad filstruktur (`index.html` + `app.js` + `i18n.js`) — kan uploades direkte via GitHub-webinterfacet og hostes på GitHub Pages.
 
 ## Skærmbilleder
 
@@ -34,7 +34,7 @@ Anbefaling: start **Realtid** når samtalen begynder — så er hele transskript
 Understøtter fem udbydere (nøgler gemmes kun i browserens localStorage og sendes direkte til udbyderen, medmindre Proxy eller Data Action er sat op — se "Nøglehåndtering" nedenfor):
 
 - **OpenAI** (`gpt-4o-mini` som standard)
-- **Google Gemini** (`gemini-2.0-flash`)
+- **Google Gemini** (`gemini-flash-latest` — alias der altid peger på Googles aktuelle Flash-model; `gemini-2.0-flash` blev lukket 1. juni 2026)
 - **Anthropic Claude** (`claude-sonnet-4-5`)
 - **Azure OpenAI (Copilot)** — API-nøgle + endpoint-URL + deployment-navn + API-version. Det er det, de fleste virksomheder mener, når de siger "Copilot" internt.
 - **Ollama (lokal)** — gratis, kører på egen maskine/server, data forlader aldrig organisationen.
@@ -60,7 +60,7 @@ Admin → Integrations → **Add Integration** → *Interaction Widget*
   ```
   https://<bruger>.github.io/<repo>/index.html?conversationId={{gcConversationId}}&langTag={{gcLangTag}}
   ```
-- Iframe sandbox options: `allow-scripts,allow-same-origin,allow-forms,allow-popups`
+- Iframe sandbox options: `allow-scripts,allow-same-origin,allow-forms,allow-popups,allow-downloads` (`allow-downloads` er nødvendig for "Gem som fil", "Hent forrige log" og CSV-eksport)
 - Iframe feature permissions: `clipboard-write`
 - Communication type filtering: `call` (eller tom for alle)
 - Aktivér integrationen og tildel den til de relevante grupper.
@@ -77,7 +77,7 @@ Admin → Integrations → **Add Integration** → *Interaction Widget*
 - `speechAndTextAnalytics:data:view` + `recording:recording:view` (hent)
 
 ## Deployment (GitHub Pages)
-1. Opret repo, upload `index.html`, `app.js`, `README.md` via browseren.
+1. Opret repo, upload `index.html`, `app.js`, `i18n.js`, `README.md` via browseren. **Anbefalet:** brug et eget domæne eller en dedikeret GitHub-organisation til widget'en (se "Kendte begrænsninger").
 2. Settings → Pages → Deploy from branch → `main` / root.
 3. URL'en bruges i OAuth redirect og Interaction Widget-konfigurationen.
 
@@ -119,7 +119,10 @@ Hvis wrap-up (ACW) har en timeout — fx 20 sek. — og agenten (eller Genesys) 
 ## Kendte begrænsninger
 - `transcripturl` kan først levere data et stykke tid efter samtalens afslutning — brug realtid, hvis resuméet skal være klar øjeblikkeligt.
 - Realtidstransskripter kommer i batches; med Low Latency ca. 3-5 sek. forsinkelse.
-- API-nøgler i browseren er praktisk til pilot/PoC. Til produktion bør AI-kaldet flyttes bag en lille proxy (f.eks. en Genesys Function Data Action eller Cloudflare Worker), så nøglen ikke ligger hos agenterne.
+- API-nøgler i browseren er praktisk til pilot/PoC. Til produktion bør AI-kaldet flyttes bag en lille proxy (f.eks. en Genesys Function Data Action eller Cloudflare Worker), så nøglen ikke ligger hos agenterne. Brug `orgLock=1` (se v1.10.0) for at håndhæve det.
+- **GitHub Pages deler origin mellem alle repos på samme konto.** Alle sider under `https://<bruger>.github.io/*` har samme origin og dermed samme `localStorage`. En hvilken som helst anden side på kontoen kan derfor læse widget'ens gemte nøgler, log og statistik. Det kan ikke løses i koden. Host widget'en på et eget (sub)domæne (GitHub Pages custom domain, Cloudflare Pages, Azure Static Web Apps) eller i en dedikeret GitHub-organisation, som kun har dette ene Pages-site.
+- **Tredjeparts-AI og GDPR:** Direkte kald, proxy og Data Action sender transskriptionen til den valgte udbyder. Sørg for en databehandleraftale, og brug ikke Gemini API'ets gratis niveau til rigtige samtaler: her må Google bruge data til at forbedre sine produkter. Ollama (lokalt/on-prem) og Azure OpenAI i en EU-region holder data inden for jeres egen kontrol.
+- **Content-Security-Policy:** `index.html` tillader kun scripts fra samme origin. Netværkskald må gå til `https:`, `wss:` og `http://localhost`/`127.0.0.1`. En Whisper- eller Ollama-server på en anden maskine skal derfor tilgås via HTTPS.
 
 v1.0.0
 
@@ -151,6 +154,8 @@ npx wrangler secret put AZURE_OPENAI_ENDPOINT     #   (AZURE_OPENAI_API_VERSION 
 npx wrangler secret put AZURE_OPENAI_DEPLOYMENT
 # valgfri:
 npx wrangler secret put ALLOWED_ORIGIN      # fx https://<bruger>.github.io (kun CORS — ikke adgangskontrol)
+npx wrangler secret put ALLOWED_MODELS      # fx gpt-4o-mini,gpt-4o (tom = kun standardmodellen pr. udbyder)
+npx wrangler secret put OLLAMA_URL          # fælles Ollama-server (URL fra widget'en ignoreres)
 ```
 
 Indsæt worker-URL'en i widget'ens felt "Proxy-URL". Endpoint: `POST /summarize` med `Authorization: Bearer <agentens Genesys-token>` og `{provider, model, prompt, clientKey?}` → `{text, keySource}` hvor `keySource` viser om server- eller klientnøglen blev brugt. Fra v1.9.0 afviser proxyen alle kald uden et gyldigt Genesys-token fra jeres egen org (se v1.9.0 nedenfor).
@@ -188,7 +193,7 @@ Prioritering i widget'en: **Data Action > Proxy > Direkte** — sæt Action ID i
 Opsætning:
 1. Admin → Integrations → **Genesys Cloud Function** → ny integration.
 2. Credentials-tab: felterne `openaiKey`, `geminiKey`, `anthropicKey`, `ollamaUrl` (kun dem der bruges).
-3. Upload `function-ai-summary.zip` · Runtime `nodejs20.x` · Handler `src/index.handler` · timeout så højt som muligt.
+3. Upload `function-ai-summary.zip` · Runtime `nodejs22.x` · Handler `src/index.handler` · timeout så højt som muligt.
 4. Opret Data Action på integrationen — kontrakter, Request Body Template og translation map ligger klar til copy/paste i `CONTRACTS.md`.
 5. Publicér, kopiér Action ID ind i widget'en.
 
@@ -308,3 +313,28 @@ Ny central mekanisme, så admin kan sætte én fast AI-adgang for **alle agenter
 - **conversationId valideres som UUID overalt**: fra URL'en, OAuth-state, sessionStorage og Opsætning-feltet. Før blev værdierne fra state og feltet sat direkte ind i API-stier, også i wrap-up-PATCH'en.
 - **Auto-wrap-up skrives på den indloggede agents egen deltager** (`participant.userId` = `/api/v2/users/me`). Før blev den første agent-deltager brugt, og efter en omstilling var det den forrige agent.
 - **Azure OpenAI virker nu også via proxy og Data Action.** Begge afviste før `azure` som ukendt udbyder. Endpointet ligger kun på serversiden: sammen med en server-nøgle bruger proxyen udelukkende `AZURE_OPENAI_ENDPOINT`, og et endpoint fra klienten (kun sammen med klientens egen nøgle) skal være et `*.openai.azure.com`-/`*.cognitiveservices.azure.com`-domæne.
+
+### v1.10.0 — Resterende sikkerheds- og driftsforbedringer
+
+**⚠️ Kræver handling ved opgradering:**
+1. **Upload også den nye fil `i18n.js`** til GitHub Pages sammen med `index.html` og `app.js`. Uden den starter widget'en ikke.
+2. **Data Action:** opdater Request Body Template fra `CONTRACTS.md`. Input er nu pakket ind i `$esc.jsonString(...)`, og der er nye credentials `allowedModels` og `ollamaModel`. Skift runtime til `nodejs22.x`, og upload den nye `function-ai-summary.zip`.
+3. **Proxy:** Ollama kan kun bruges via `OLLAMA_URL`-secret'en, og en URL fra widget'en ignoreres. Andre modeller end standardmodellen kræver `ALLOWED_MODELS`. Deploy igen.
+4. **Sandbox:** tilføj `allow-downloads` til widget-integrationens iframe sandbox options.
+
+**Nyt og rettet:**
+- **Org-lås (`orgLock=1` i widget-URL'en)**, sammen med `orgActionId` eller `orgProxyUrl`: org-standarden er den *eneste* AI-vej. Agentens egne nøgler, egne Data Action-/Proxy-overrides, direkte Ollama, lokal Whisper og "Sammenlign udbydere" er slået fra, og felterne vises deaktiveret. Så kan transskriptioner kun gå til en udbyder, organisationen har godkendt.
+- **Org-fokuspunkter (`orgFocus=<tekst>` i widget-URL'en, URL-encoded, max 2000 tegn):** fælles fokuspunkter, der altid kommer med i prompten, udover agentens egne.
+- **Tilladte modeller på serversiden:** proxy (`ALLOWED_MODELS`) og Data Action (`allowedModels`) tillader som udgangspunkt kun standardmodellen pr. udbyder. En agent kan altså ikke bruge organisationens nøgle på en dyrere model. Prompten er begrænset til 120.000 tegn.
+- **SSRF-hul lukket i proxyen:** en `ollamaUrl` fra klienten bruges ikke længere.
+- **Beskyttelse mod prompt injection:** transskriptionen sættes ind mellem `<transcript>`-tags, som ikke kan lukkes indefra, og modellen får besked på aldrig at følge instruktioner i den. Det er vigtigt, fordi auto-wrap-up skriver svaret direkte ind i Genesys.
+- **Data Action-body'en er escapet** (`$esc.jsonString`). Uden det giver linjeskift og anførselstegn i transskriptionen ugyldig JSON.
+- **Content-Security-Policy:** I18N er flyttet fra et inline-script til `i18n.js`, og `index.html` kører nu med `script-src 'self'`.
+- **Gemini-nøglen sendes i headeren `x-goog-api-key`** i stedet for i URL'en (URL'er havner i logs). Modelnavnet URL-encodes.
+- **Standardmodeller:** `gemini-2.0-flash` blev lukket af Google 1. juni 2026, så standarden er nu `gemini-flash-latest`. Gemte indstillinger med den gamle model migreres automatisk. OpenAI-kald bruger `max_completion_tokens`, som virker med både klassiske modeller og reasoning-modeller (gpt-5/o-serien).
+- **Stabil realtid:** afbrydes WebSocket'en midt i samtalen, genopretter widget'en forbindelsen automatisk med stigende ventetid (op til 5 forsøg) på en ny kanal og beholder det, der allerede er transskriberet. Kun beskeder for præcis denne samtales topic bliver brugt. Frigivelsen af abonnementet sendes med `keepalive`, så den også når frem, når iframen lukkes.
+- **Færre persondata i browseren:** OAuth-`code`/`state` maskeres i loggen, og tokenets første tegn logges ikke længere. "Hent forrige log" udløber efter 24 timer, så den næste bruger på en delt pc ikke kan hente den.
+- **`cfgVersion` skal være et heltal.** Værdier som `v3` blev tidligere til `NaN` og udløste aldrig en nulstilling; nu ignoreres de med en advarsel i loggen.
+- Brugerbeskeder, der før var hardcodet på dansk, er nu oversat på alle fire sprog.
+
+**Ikke med i denne version (kræver en arkitekturbeslutning):** et resumé, der laves på serversiden uafhængigt af agentens browser (Architect/EventBridge). Det er stadig den eneste måde at få en 100 % pålidelig auto-wrap-up på. Det samme gælder et fælles modul til udbyder-kaldene, der i dag findes i tre kopier (browser, Worker og Function); det kræver et build-trin, som den flade GitHub Pages-struktur ikke har.

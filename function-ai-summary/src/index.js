@@ -6,29 +6,25 @@
  * Template — they never leave Genesys and are never visible to agents.
  *
  * Credentials tab fields (add the ones you use):
- *   openaiKey, geminiKey, anthropicKey, ollamaUrl,
- *   azureKey, azureEndpoint, azureDeployment, azureApiVersion
+ *   openaiKey, geminiKey, anthropicKey, ollamaUrl, ollamaModel,
+ *   azureKey, azureEndpoint, azureDeployment, azureApiVersion,
+ *   allowedModels
+ *
+ * allowedModels: comma-separated model/deployment names callers may
+ * request (e.g. "gpt-4o-mini,gpt-4o"). Empty = only the default model per
+ * provider (DEFAULT_MODELS below, azureDeployment, ollamaModel) — so anyone
+ * with integrations:action:execute can't switch the org's keys to an
+ * expensive model.
  *
  * Azure endpoint/API version come ONLY from credentials, never from the
  * caller — so the org's Azure key can't be sent to a caller-chosen host.
  * input.model selects the Azure deployment; empty = azureDeployment.
  *
- * Request Body Template (Data Action config):
- * {
- *   "provider":     "${input.provider}",
- *   "model":        "${input.model}",
- *   "prompt":       "${input.prompt}",
- *   "openaiKey":    "${credentials.openaiKey}",
- *   "geminiKey":    "${credentials.geminiKey}",
- *   "anthropicKey": "${credentials.anthropicKey}",
- *   "ollamaUrl":    "${credentials.ollamaUrl}",
- *   "azureKey":        "${credentials.azureKey}",
- *   "azureEndpoint":   "${credentials.azureEndpoint}",
- *   "azureDeployment": "${credentials.azureDeployment}",
- *   "azureApiVersion": "${credentials.azureApiVersion}"
- * }
+ * Request Body Template (Data Action config) — see CONTRACTS.md. Input
+ * strings MUST be wrapped in $esc.jsonString(), otherwise newlines/quotes
+ * in the transcript produce invalid JSON.
  *
- * Runtime: nodejs20.x — Handler: src/index.handler
+ * Runtime: nodejs22.x — Handler: src/index.handler
  * Zip layout:  function-ai-summary.zip
  *                └── src/index.js   (this file)
  */
@@ -37,10 +33,13 @@
 
 const DEFAULT_MODELS = {
   openai: "gpt-4o-mini",
-  gemini: "gemini-2.0-flash",
+  gemini: "gemini-flash-latest",
   claude: "claude-sonnet-4-5",
   ollama: "llama3.1"
 };
+const PROVIDERS = ["openai", "gemini", "claude", "azure", "ollama"];
+const MAX_PROMPT_CHARS = 120000; // ~1 hour of call transcript with headroom
+const MAX_OUTPUT_TOKENS = 1000;
 
 /* Parse the incoming event defensively — Genesys delivers the rendered
    request body, but the wrapping differs between runtime versions. */
@@ -53,15 +52,33 @@ function parseEvent(event) {
   return event;
 }
 
+function defaultModel(provider, body) {
+  if (provider === "azure") return body.azureDeployment || "";
+  if (provider === "ollama") return body.ollamaModel || DEFAULT_MODELS.ollama;
+  return DEFAULT_MODELS[provider];
+}
+
+/* A requested model is allowed if it is the provider default, or listed in
+   the allowedModels credential. Empty request = default. */
+function resolveModel(provider, body) {
+  const def = defaultModel(provider, body);
+  const model = String(body.model || def || "").trim();
+  if (!model) throw new Error(`No model configured for '${provider}'`);
+  if (!/^[\w.:-]+$/.test(model)) throw new Error("Invalid model name");
+  const allowed = String(body.allowedModels || "").split(",").map(s => s.trim()).filter(Boolean);
+  if (model !== def && !allowed.includes(model)) throw new Error(`Model '${model}' is not allowed (see allowedModels credential)`);
+  return model;
+}
+
 exports.handler = async (event) => {
   const body = parseEvent(event);
-  const provider = (body.provider || "").toLowerCase();
-  const prompt = body.prompt || "";
-  let model = body.model || DEFAULT_MODELS[provider] || "";
+  const provider = String(body.provider || "").toLowerCase();
+  const prompt = typeof body.prompt === "string" ? body.prompt : "";
 
-  if (!["openai", "gemini", "claude", "azure", "ollama"].includes(provider))
-    throw new Error("Unknown provider: " + provider);
+  if (!PROVIDERS.includes(provider)) throw new Error("Unknown provider: " + provider);
   if (!prompt) throw new Error("Missing prompt");
+  if (prompt.length > MAX_PROMPT_CHARS) throw new Error(`Prompt too large (max ${MAX_PROMPT_CHARS} chars)`);
+  const model = resolveModel(provider, body);
 
   let text = "";
 
@@ -70,7 +87,9 @@ exports.handler = async (event) => {
     const r = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: "Bearer " + body.openaiKey },
-      body: JSON.stringify({ model, messages: [{ role: "user", content: prompt }], max_tokens: 1000 })
+      // max_completion_tokens works for both classic and reasoning (gpt-5/o-series) models;
+      // reasoning models spend part of it on hidden reasoning, hence the headroom
+      body: JSON.stringify({ model, messages: [{ role: "user", content: prompt }], max_completion_tokens: MAX_OUTPUT_TOKENS * 4 })
     });
     const d = await r.json();
     if (!r.ok) throw new Error(d.error?.message || ("OpenAI " + r.status));
@@ -79,9 +98,9 @@ exports.handler = async (event) => {
   } else if (provider === "gemini") {
     if (!body.geminiKey) throw new Error("No geminiKey credential configured");
     const r = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(body.geminiKey)}`,
-      { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }) }
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+      { method: "POST", headers: { "Content-Type": "application/json", "x-goog-api-key": body.geminiKey },
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: MAX_OUTPUT_TOKENS } }) }
     );
     const d = await r.json();
     if (!r.ok) throw new Error(d.error?.message || ("Gemini " + r.status));
@@ -91,14 +110,11 @@ exports.handler = async (event) => {
     if (!body.azureKey) throw new Error("No azureKey credential configured");
     const endpoint = (body.azureEndpoint || "").replace(/\/$/, "");
     if (!endpoint) throw new Error("No azureEndpoint credential configured");
-    const deployment = body.model || body.azureDeployment || "";
-    model = deployment;
-    if (!/^[\w.-]+$/.test(deployment)) throw new Error("Missing or invalid Azure deployment (input.model or azureDeployment credential)");
     const apiVersion = body.azureApiVersion || "2024-08-01-preview";
-    const r = await fetch(`${endpoint}/openai/deployments/${encodeURIComponent(deployment)}/chat/completions?api-version=${encodeURIComponent(apiVersion)}`, {
+    const r = await fetch(`${endpoint}/openai/deployments/${encodeURIComponent(model)}/chat/completions?api-version=${encodeURIComponent(apiVersion)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "api-key": body.azureKey },
-      body: JSON.stringify({ messages: [{ role: "user", content: prompt }], max_tokens: 1000 })
+      body: JSON.stringify({ messages: [{ role: "user", content: prompt }], max_tokens: MAX_OUTPUT_TOKENS })
     });
     const d = await r.json();
     if (!r.ok) throw new Error(d.error?.message || ("Azure " + r.status));
@@ -109,7 +125,7 @@ exports.handler = async (event) => {
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-api-key": body.anthropicKey, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model, max_tokens: 1000, messages: [{ role: "user", content: prompt }] })
+      body: JSON.stringify({ model, max_tokens: MAX_OUTPUT_TOKENS, messages: [{ role: "user", content: prompt }] })
     });
     const d = await r.json();
     if (!r.ok) throw new Error(d.error?.message || ("Anthropic " + r.status));
