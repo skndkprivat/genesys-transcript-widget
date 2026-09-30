@@ -204,11 +204,6 @@
           <option value="cac1.pure.cloud">Canada (cac1.pure.cloud)</option>
           <option value="aps1.pure.cloud">Asia Pacific (aps1.pure.cloud)</option>
         </select>
-        <label id="t-lbl-grant" for="authType"></label>
-        <select id="authType">
-          <option value="pkce">Code Authorization / PKCE</option>
-          <option value="implicit">Token Implicit Grant (Browser)</option>
-        </select>
         <label id="t-lbl-clientid" for="clientId"></label>
         <input type="text" id="clientId" autocomplete="off" spellcheck="false">
       </div>
@@ -304,7 +299,7 @@
     </fieldset>
 
     <div class="row"><button class="btn" id="btnSave"></button></div>
-    <p class="footer-note" id="verNote">Genesys Transcript &amp; Summary Widget v1.8.0</p>
+    <p class="footer-note" id="verNote">Genesys Transcript &amp; Summary Widget v1.9.0</p>
   </section>
 </main>
 
@@ -317,7 +312,7 @@
      B) Fetch: GET /api/v2/speechandtextanalytics/conversations/{cid}/
         communications/{commId}/transcripturl
    AI: OpenAI / Gemini / Claude / Ollama via keys, proxy or Data Action
-   Auth: OAuth2 Code Authorization + PKCE (default) or Implicit Grant
+   Auth: OAuth2 Code Authorization + PKCE
    ============================================================ */
 
 /* ---------------- i18n ---------------- */
@@ -377,9 +372,10 @@ const I18N = {
     hintOllama:"Kræver at Ollama kører med CORS åbnet for widget-domænet: sæt miljøvariablen OLLAMA_ORIGINS til widget-URL\u2019ens origin (eller *) og genstart Ollama.",
     lblAction:"Genesys Function Data Action ID (valgfri — vinder over proxy)",
     hintAction:"Er et Action ID sat, køres AI-kaldet som Function Data Action inde i Genesys Cloud. API-nøglerne ligger KUN i integrationens Credentials-tab — intet sendes fra browseren. Kræver permission integrations:action:execute.",
-    authHint:"Tjek at Grant Type-valget matcher OAuth-klienten i Genesys (PKCE eller Implicit), og at Authorized redirect URI matcher widget-URL\u2019en PRÆCIST.",
+    authHint:"Tjek at OAuth-klienten i Genesys bruger Code Authorization (PKCE), og at Authorized redirect URI matcher widget-URL\u2019en PRÆCIST.",
+    implicitRemoved:"Implicit Grant understøttes ikke længere. Bed admin om at skifte OAuth-klienten til Code Authorization (PKCE).",
+    invalidConvId:"Conversation ID er ugyldigt (skal være et UUID) — ignoreret.",
     tabLog:"Log",
-    lblGrant:"OAuth Grant Type (skal matche klienten i Genesys)",
     logSave:"Gem som fil",
     logPrev:"Hent forrige log",
     logPrevCopy:"Kopiér forrige log",
@@ -457,9 +453,10 @@ const I18N = {
     hintOllama:"Requires Ollama running with CORS opened for the widget domain: set the OLLAMA_ORIGINS environment variable to the widget URL\u2019s origin (or *) and restart Ollama.",
     lblAction:"Genesys Function Data Action ID (optional — takes precedence over proxy)",
     hintAction:"If an Action ID is set, the AI call runs as a Function Data Action inside Genesys Cloud. API keys live ONLY in the integration\u2019s Credentials tab — nothing is sent from the browser. Requires the integrations:action:execute permission.",
-    authHint:"Check that the Grant Type selection matches the OAuth client in Genesys (PKCE or Implicit) and that the Authorized redirect URI matches the widget URL EXACTLY.",
+    authHint:"Check that the OAuth client in Genesys uses Code Authorization (PKCE) and that the Authorized redirect URI matches the widget URL EXACTLY.",
+    implicitRemoved:"Implicit Grant is no longer supported. Ask your admin to switch the OAuth client to Code Authorization (PKCE).",
+    invalidConvId:"Conversation ID is invalid (must be a UUID) — ignored.",
     tabLog:"Log",
-    lblGrant:"OAuth Grant Type (must match the client in Genesys)",
     logSave:"Save as file",
     logPrev:"Download previous log",
     logPrevCopy:"Copy previous log",
@@ -537,9 +534,10 @@ const I18N = {
     hintOllama:"Nécessite Ollama avec CORS ouvert pour le domaine du widget : définissez la variable d\u2019environnement OLLAMA_ORIGINS sur l\u2019origine de l\u2019URL du widget (ou *) et redémarrez Ollama.",
     lblAction:"ID de la Function Data Action Genesys (optionnel — prioritaire sur le proxy)",
     hintAction:"Si un Action ID est défini, l\u2019appel IA s\u2019exécute comme Function Data Action dans Genesys Cloud. Les clés API résident UNIQUEMENT dans l\u2019onglet Credentials de l\u2019intégration — rien n\u2019est envoyé depuis le navigateur. Nécessite la permission integrations:action:execute.",
-    authHint:"Vérifiez que le Grant Type sélectionné correspond au client OAuth dans Genesys (PKCE ou Implicit) et que l\u2019Authorized redirect URI correspond EXACTEMENT à l\u2019URL du widget.",
+    authHint:"Vérifiez que le client OAuth dans Genesys utilise Code Authorization (PKCE) et que l\u2019Authorized redirect URI correspond EXACTEMENT à l\u2019URL du widget.",
+    implicitRemoved:"Implicit Grant n\u2019est plus pris en charge. Demandez à l\u2019admin de passer le client OAuth en Code Authorization (PKCE).",
+    invalidConvId:"Conversation ID invalide (doit être un UUID) — ignoré.",
     tabLog:"Journal",
-    lblGrant:"OAuth Grant Type (doit correspondre au client dans Genesys)",
     logSave:"Enregistrer",
     logPrev:"Télécharger le journal précédent",
     logPrevCopy:"Copier le journal précédent",
@@ -617,9 +615,10 @@ const I18N = {
     hintOllama:"Erfordert Ollama mit geöffnetem CORS für die Widget-Domain: Umgebungsvariable OLLAMA_ORIGINS auf den Origin der Widget-URL (oder *) setzen und Ollama neu starten.",
     lblAction:"Genesys Function Data Action ID (optional — hat Vorrang vor dem Proxy)",
     hintAction:"Ist eine Action ID gesetzt, läuft der KI-Aufruf als Function Data Action innerhalb von Genesys Cloud. Die API-Schlüssel liegen NUR im Credentials-Tab der Integration — nichts wird vom Browser gesendet. Erfordert die Permission integrations:action:execute.",
-    authHint:"Prüfen Sie, dass die Grant-Type-Auswahl dem OAuth-Client in Genesys entspricht (PKCE oder Implicit) und die Authorized redirect URI EXAKT der Widget-URL entspricht.",
+    authHint:"Prüfen Sie, dass der OAuth-Client in Genesys Code Authorization (PKCE) verwendet und die Authorized redirect URI EXAKT der Widget-URL entspricht.",
+    implicitRemoved:"Implicit Grant wird nicht mehr unterstützt. Bitten Sie den Admin, den OAuth-Client auf Code Authorization (PKCE) umzustellen.",
+    invalidConvId:"Conversation ID ist ungültig (muss eine UUID sein) — ignoriert.",
     tabLog:"Protokoll",
-    lblGrant:"OAuth Grant Type (muss dem Client in Genesys entsprechen)",
     logSave:"Als Datei speichern",
     logPrev:"Vorheriges Protokoll herunterladen",
     logPrevCopy:"Vorheriges Protokoll kopieren",

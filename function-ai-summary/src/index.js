@@ -6,7 +6,12 @@
  * Template — they never leave Genesys and are never visible to agents.
  *
  * Credentials tab fields (add the ones you use):
- *   openaiKey, geminiKey, anthropicKey, ollamaUrl
+ *   openaiKey, geminiKey, anthropicKey, ollamaUrl,
+ *   azureKey, azureEndpoint, azureDeployment, azureApiVersion
+ *
+ * Azure endpoint/API version come ONLY from credentials, never from the
+ * caller — so the org's Azure key can't be sent to a caller-chosen host.
+ * input.model selects the Azure deployment; empty = azureDeployment.
  *
  * Request Body Template (Data Action config):
  * {
@@ -16,7 +21,11 @@
  *   "openaiKey":    "${credentials.openaiKey}",
  *   "geminiKey":    "${credentials.geminiKey}",
  *   "anthropicKey": "${credentials.anthropicKey}",
- *   "ollamaUrl":    "${credentials.ollamaUrl}"
+ *   "ollamaUrl":    "${credentials.ollamaUrl}",
+ *   "azureKey":        "${credentials.azureKey}",
+ *   "azureEndpoint":   "${credentials.azureEndpoint}",
+ *   "azureDeployment": "${credentials.azureDeployment}",
+ *   "azureApiVersion": "${credentials.azureApiVersion}"
  * }
  *
  * Runtime: nodejs20.x — Handler: src/index.handler
@@ -48,9 +57,9 @@ exports.handler = async (event) => {
   const body = parseEvent(event);
   const provider = (body.provider || "").toLowerCase();
   const prompt = body.prompt || "";
-  const model = body.model || DEFAULT_MODELS[provider];
+  let model = body.model || DEFAULT_MODELS[provider] || "";
 
-  if (!["openai", "gemini", "claude", "ollama"].includes(provider))
+  if (!["openai", "gemini", "claude", "azure", "ollama"].includes(provider))
     throw new Error("Unknown provider: " + provider);
   if (!prompt) throw new Error("Missing prompt");
 
@@ -77,6 +86,23 @@ exports.handler = async (event) => {
     const d = await r.json();
     if (!r.ok) throw new Error(d.error?.message || ("Gemini " + r.status));
     text = d.candidates?.[0]?.content?.parts?.map(p => p.text).join("") || "";
+
+  } else if (provider === "azure") {
+    if (!body.azureKey) throw new Error("No azureKey credential configured");
+    const endpoint = (body.azureEndpoint || "").replace(/\/$/, "");
+    if (!endpoint) throw new Error("No azureEndpoint credential configured");
+    const deployment = body.model || body.azureDeployment || "";
+    model = deployment;
+    if (!/^[\w.-]+$/.test(deployment)) throw new Error("Missing or invalid Azure deployment (input.model or azureDeployment credential)");
+    const apiVersion = body.azureApiVersion || "2024-08-01-preview";
+    const r = await fetch(`${endpoint}/openai/deployments/${encodeURIComponent(deployment)}/chat/completions?api-version=${encodeURIComponent(apiVersion)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "api-key": body.azureKey },
+      body: JSON.stringify({ messages: [{ role: "user", content: prompt }], max_tokens: 1000 })
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error?.message || ("Azure " + r.status));
+    text = d.choices?.[0]?.message?.content || "";
 
   } else if (provider === "claude") {
     if (!body.anthropicKey) throw new Error("No anthropicKey credential configured");

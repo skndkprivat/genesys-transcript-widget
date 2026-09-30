@@ -49,7 +49,7 @@ UI-sprog: dansk, engelsk, fransk, tysk — vælges automatisk ud fra `{{gcLangTa
 
 ### 1. OAuth-klient
 Admin → Integrations → OAuth → **Add Client**
-- Grant type: **Token Implicit Grant (Browser)**
+- Grant type: **Code Authorization** med PKCE (Implicit Grant understøttes ikke længere fra v1.9.0)
 - Authorized redirect URI: `https://<dit-github-brugernavn>.github.io/<repo>/index.html` (og evt. uden `index.html`)
 - Scope: `conversations`, `speech-and-text-analytics`, `notifications`
 - Kopiér Client ID ind i widget'ens Opsætning-fane.
@@ -141,15 +141,19 @@ Nøgleprioritering som ønsket: **findes der en server-side nøgle i proxyen, br
 
 ```bash
 npx wrangler deploy proxy-worker.js --name ai-summary-proxy
+npx wrangler secret put GC_REGION           # PÅKRÆVET (v1.9.0+), fx mypurecloud.de
+npx wrangler secret put GC_ORG_ID           # PÅKRÆVET (v1.9.0+), jeres Genesys org-id
 npx wrangler secret put OPENAI_API_KEY      # kun de udbydere proxyen skal eje
 npx wrangler secret put GEMINI_API_KEY
 npx wrangler secret put ANTHROPIC_API_KEY
-# valgfri hærdning:
-npx wrangler secret put ALLOWED_ORIGIN      # fx https://<bruger>.github.io
-npx wrangler secret put PROXY_TOKEN
+npx wrangler secret put AZURE_OPENAI_KEY          # + AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_DEPLOYMENT
+npx wrangler secret put AZURE_OPENAI_ENDPOINT     #   (AZURE_OPENAI_API_VERSION er valgfri)
+npx wrangler secret put AZURE_OPENAI_DEPLOYMENT
+# valgfri:
+npx wrangler secret put ALLOWED_ORIGIN      # fx https://<bruger>.github.io (kun CORS — ikke adgangskontrol)
 ```
 
-Indsæt worker-URL'en i widget'ens felt "Proxy-URL". Endpoint: `POST /summarize` med `{provider, model, prompt, clientKey?}` → `{text, keySource}` hvor `keySource` viser om server- eller klientnøglen blev brugt.
+Indsæt worker-URL'en i widget'ens felt "Proxy-URL". Endpoint: `POST /summarize` med `Authorization: Bearer <agentens Genesys-token>` og `{provider, model, prompt, clientKey?}` → `{text, keySource}` hvor `keySource` viser om server- eller klientnøglen blev brugt. Fra v1.9.0 afviser proxyen alle kald uden et gyldigt Genesys-token fra jeres egen org (se v1.9.0 nedenfor).
 
 ---
 
@@ -185,7 +189,7 @@ Opsætning:
 1. Admin → Integrations → **Genesys Cloud Function** → ny integration.
 2. Credentials-tab: felterne `openaiKey`, `geminiKey`, `anthropicKey`, `ollamaUrl` (kun dem der bruges).
 3. Upload `function-ai-summary.zip` · Runtime `nodejs20.x` · Handler `src/index.handler` · timeout så højt som muligt.
-4. Opret Data Action på integrationen — kontrakter, Request Body Template og translation map ligger klar til copy/paste i `gc-function/CONTRACTS.md`.
+4. Opret Data Action på integrationen — kontrakter, Request Body Template og translation map ligger klar til copy/paste i `CONTRACTS.md`.
 5. Publicér, kopiér Action ID ind i widget'en.
 
 ### Systembeskrivelse
@@ -290,3 +294,17 @@ Ny central mekanisme, så admin kan sætte én fast AI-adgang for **alle agenter
 **Agenten kan også selv nulstille:** ny knap **"Nulstil til org-standard"** under Opsætning (AI-fieldset'et), plus en statuslinje, der viser om en org-standard er fundet, og om agentens egen nøgle overstyrer den for bestemte udbydere.
 
 **Hvorfor ikke bare sætte en rigtig API-nøgle i URL'en?** Fordi den URL er synlig for *enhver agent* via DevTools/Netværksfanen — værre eksponering end nutidens per-agent `localStorage`, hvor kun én agent kender sin egen nøgle. `orgActionId`/`orgProxyUrl` er derfor bevidst begrænset til ikke-hemmeligheder; den rigtige nøgle skal ligge i Genesys' Function Data Action (Credentials-tab) eller i jeres egen proxy-server, aldrig i widget-URL'en.
+
+### v1.9.0 — Sikkerhedsrettelser (proxy-adgang, login, conversationId, wrap-up, Azure)
+
+**⚠️ Kræver handling ved opgradering:**
+1. **OAuth-klienten skal være Code Authorization (PKCE).** Implicit Grant er fjernet. Står jeres klient i Genesys til *Token Implicit Grant*, skal den skiftes (eller der oprettes en ny), ellers kan agenterne ikke logge ind.
+2. **Proxyen kræver `GC_REGION` og `GC_ORG_ID`.** Uden dem afvises alle kald. Org-id'et finder du under Admin → Account Settings → Organization Settings, eller med `GET /api/v2/organizations/me`. `PROXY_TOKEN` bruges ikke længere og kan slettes.
+3. **Data Action med Azure:** tilføj credentials `azureKey`, `azureEndpoint`, `azureDeployment` (og evt. `azureApiVersion`) og den udvidede Request Body Template fra `CONTRACTS.md`, og upload den nye `function-ai-summary.zip`.
+
+**Rettelser:**
+- **Proxyen kan ikke længere bruges af alle, der kender URL'en.** Den sendte afsenderens Origin tilbage i CORS-headeren og havde ingen reel adgangskontrol (widget'en sendte aldrig `PROXY_TOKEN`, og et token i browseren ville alligevel være offentligt). Nu sender widget'en agentens Genesys-token, og proxyen tjekker det mod `GET /api/v2/tokens/me` og kræver, at org-id'et matcher `GC_ORG_ID`. Resultatet caches i 5 min pr. token.
+- **Login kun via PKCE, og `state` tjekkes.** Et `#access_token` i URL'en ignoreres. `?code=` accepteres kun, hvis `state` indeholder den engangs-nonce, som denne fane selv oprettede ved login — så et fremmed link ikke kan få widget'en til at bruge et andet login eller en anden kontekst.
+- **conversationId valideres som UUID overalt**: fra URL'en, OAuth-state, sessionStorage og Opsætning-feltet. Før blev værdierne fra state og feltet sat direkte ind i API-stier, også i wrap-up-PATCH'en.
+- **Auto-wrap-up skrives på den indloggede agents egen deltager** (`participant.userId` = `/api/v2/users/me`). Før blev den første agent-deltager brugt, og efter en omstilling var det den forrige agent.
+- **Azure OpenAI virker nu også via proxy og Data Action.** Begge afviste før `azure` som ukendt udbyder. Endpointet ligger kun på serversiden: sammen med en server-nøgle bruger proxyen udelukkende `AZURE_OPENAI_ENDPOINT`, og et endpoint fra klienten (kun sammen med klientens egen nøgle) skal være et `*.openai.azure.com`-/`*.cognitiveservices.azure.com`-domæne.

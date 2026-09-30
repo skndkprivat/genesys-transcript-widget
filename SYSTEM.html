@@ -67,7 +67,7 @@
 <text class="t-head" x="115" y="163" text-anchor="middle" >Interaction Widget</text>
 <text class="t-small" x="115" y="180" text-anchor="middle">index.html + app.js</text>
 <text class="t-small" x="115" y="195" text-anchor="middle">GitHub Pages (statisk)</text>
-<text class="t-small" x="115" y="215" text-anchor="middle">OAuth Implicit (SSO)</text>
+<text class="t-small" x="115" y="215" text-anchor="middle">OAuth PKCE (SSO)</text>
 <text class="t-small" x="115" y="230" text-anchor="middle">i18n: DA / EN / FR / DE</text>
 <text class="t-small" x="115" y="245" text-anchor="middle">localStorage-konfiguration</text>
 
@@ -178,7 +178,7 @@
 <line class="lane" x1="790" y1="30" x2="790" y2="380"/>
 
 <path class="arrow" d="M90 50 L 296 50"/><text class="t-small" x="110" y="44">1. besvarer opkald → widget åbnes ({{gcConversationId}})</text>
-<path class="arrow arrow-gc" d="M300 80 L 556 80"/><text class="t-small" x="315" y="74">2. lydløst SSO-login (Implicit Grant)</text>
+<path class="arrow arrow-gc" d="M300 80 L 556 80"/><text class="t-small" x="315" y="74">2. lydløst SSO-login (PKCE)</text>
 <path class="arrow-dash arrow" d="M560 105 L 304 105"/><text class="t-small" x="330" y="99">3. access_token (redirect tilbage)</text>
 <path class="arrow arrow-gc" d="M300 135 L 556 135"/><text class="t-small" x="315" y="129">4. POST notifications/channels + subscribe topic</text>
 <path class="arrow-dash arrow arrow-gc" d="M560 165 L 304 165"/><text class="t-small" x="330" y="159">5. WSS: transskript-ytringer (løbende, 3-5 s)</text>
@@ -287,7 +287,7 @@
 <tr><td>Permissions</td>
     <td><code>conversation:transcription:view</code> · <code>speechAndTextAnalytics:data:view</code> · <code>recording:recording:view</code> · <code>integrations:action:execute</code> <span class="L" data-da="(kun ved Data Action-vejen)" data-en="(Data Action path only)"></span></td></tr>
 <tr><td>OAuth</td>
-    <td class="L" data-da="Token Implicit Grant-klient med widget-URL som redirect URI; scopes: conversations, speech-and-text-analytics, notifications (+ integrations ved Data Action)." data-en="Token Implicit Grant client with the widget URL as redirect URI; scopes: conversations, speech-and-text-analytics, notifications (+ integrations for the Data Action path)."></td></tr>
+    <td class="L" data-da="Code Authorization-klient (PKCE) med widget-URL som redirect URI; scopes: conversations, speech-and-text-analytics, notifications (+ integrations ved Data Action)." data-en="Code Authorization (PKCE) client with the widget URL as redirect URI; scopes: conversations, speech-and-text-analytics, notifications (+ integrations for the Data Action path)."></td></tr>
 <tr><td>Widget</td>
     <td class="L" data-da="Interaction Widget-integration med URL-interpolation {{gcConversationId}} og {{gcLangTag}}; sandbox: allow-scripts, allow-same-origin, allow-forms, allow-popups, <strong>allow-downloads</strong> (krævet for log-/CSV-download — uden den fejler filnedhentning stille i en cross-origin iframe); feature: clipboard-write." data-en="Interaction Widget integration with {{gcConversationId}} and {{gcLangTag}} URL interpolation; sandbox: allow-scripts, allow-same-origin, allow-forms, allow-popups, <strong>allow-downloads</strong> (required for log/CSV downloads — without it, file downloads fail silently in a cross-origin iframe); feature: clipboard-write."></td></tr>
 </table>

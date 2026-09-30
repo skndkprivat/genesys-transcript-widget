@@ -21,11 +21,11 @@ const defaults = {
   autoStart: true,
   autoWrapup: false,
   autoWrapupCode: "",
-  authType: "pkce",
   focusPoints: "",
   savedCfgVersion: ""
 };
 let cfg = { ...defaults, ...(JSON.parse(localStorage.getItem(LS) || "{}")) };
+delete cfg.authType; // Implicit Grant removed in v1.9.0 — PKCE is the only flow
 
 /* Org-wide defaults supplied by the admin via the widget's Application URL
    in Genesys Admin (Integrations → this Interaction Widget → Configuration).
@@ -341,7 +341,6 @@ function applyLang() {
   setTxt("t-leg-genesys", T.legGenesys);
   setTxt("t-lbl-region", T.lblRegion);
   setTxt("t-lbl-clientid", T.lblClientId);
-  setTxt("t-lbl-grant", T.lblGrant);
   setTxt("nav-log", T.tabLog);
   setTxt("btnLogCopy", T.copyT);
   setTxt("btnLogSave", T.logSave);
@@ -419,7 +418,18 @@ document.querySelectorAll("nav button").forEach(b => b.addEventListener("click",
   $("tab-" + b.dataset.tab).classList.add("active");
 }));
 
-/* ---------------- OAuth: PKCE (default) or Implicit ---------------- */
+/* Genesys conversation IDs are always UUIDs. Every conversationId source
+   (widget URL, OAuth state, sessionStorage, the Setup field) must pass
+   this before it is used — the ID is interpolated into API paths, so an
+   unvalidated value could redirect calls (incl. the wrap-up PATCH) to
+   other Genesys endpoints with the agent's token. */
+const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+function isUuid(s) { return typeof s === "string" && UUID_RE.test(s); }
+
+/* ---------------- OAuth: Code Authorization + PKCE ----------------
+   Implicit Grant was removed in v1.9.0: it accepted an access token from
+   the URL fragment with no way to bind it to a login this widget started
+   (token injection / login CSRF), and is deprecated by OAuth 2.1. */
 function redirectUri() {
   // must match the URI registered on the OAuth client EXACTLY.
   // Normalises .../index.html -> .../ so a trailing-slash registration works.
@@ -431,9 +441,10 @@ function b64url(bytes) {
     .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-function encodeState() {
-  // context that must survive the OAuth redirect — returned verbatim by Genesys
-  try { return btoa(JSON.stringify({ c: conversationId, l: cfg.uiLang })).replace(/=+$/, ""); }
+function encodeState(nonce) {
+  // context that must survive the OAuth redirect — returned verbatim by Genesys.
+  // n = one-time nonce, checked on return so only logins started here are accepted.
+  try { return btoa(JSON.stringify({ n: nonce, c: conversationId, l: cfg.uiLang })).replace(/=+$/, ""); }
   catch { return ""; }
 }
 function decodeState(s) {
@@ -445,13 +456,10 @@ async function login() {
   if (!cfg.clientId) { msg("err", T.errGeneric + "OAuth Client ID?"); log("err", "Login aborted: no Client ID"); return; }
   sessionStorage.setItem("gcCtx", JSON.stringify({ conversationId }));
   const redirect = redirectUri();
-  const state = encodeState();
+  const nonce = b64url(crypto.getRandomValues(new Uint8Array(16)));
+  sessionStorage.setItem("gcState", nonce);
+  const state = encodeState(nonce);
   const base = `https://login.${cfg.region}/oauth/authorize`;
-  if (cfg.authType === "implicit") {
-    log("info", `OAuth (implicit) → ${base} · clientId=${cfg.clientId} · redirect=${redirect}`);
-    location.href = `${base}?response_type=token&client_id=${encodeURIComponent(cfg.clientId)}&redirect_uri=${encodeURIComponent(redirect)}&state=${encodeURIComponent(state)}`;
-    return;
-  }
   // PKCE: code verifier + S256 challenge
   const rnd = crypto.getRandomValues(new Uint8Array(32));
   const verifier = b64url(rnd);
@@ -476,17 +484,30 @@ async function handleAuthReturn() {
     setTimeout(() => msg("err", T.errGeneric + "OAuth: " + err + (desc ? " — " + desc : "") + " · " + T.authHint, true), 0);
     return;
   }
-  // Implicit return: #access_token=...
+  // Implicit Grant is no longer supported — never accept a token from the URL.
   if (location.hash.includes("access_token=")) {
-    token = hs.get("access_token") || "";
-    if (token) { sessionStorage.setItem("gcToken", token); log("info", "Implicit token received (" + token.slice(0, 8) + "…)"); }
     history.replaceState(null, "", location.pathname + location.search);
+    log("warn", "Ignoring access_token in URL fragment — Implicit Grant is not supported (use Code Authorization/PKCE).");
+    setTimeout(() => msg("err", T.errGeneric + T.implicitRemoved, true), 0);
   }
-  // PKCE return: ?code=...
+  // PKCE return: ?code=...  — only accepted if state carries the nonce this
+  // browser tab generated in login(); otherwise it's not a login we started.
   const code = qs.get("code");
+  const st = qs.get("state") || "";
+  const ctx = decodeState(st);
+  const expectedNonce = sessionStorage.getItem("gcState") || "";
+  const stateOk = !!expectedNonce && ctx.n === expectedNonce;
+  if (code && !stateOk) {
+    history.replaceState(null, "", location.pathname);
+    log("err", "OAuth return rejected: state does not match a login started by this widget.");
+    setTimeout(() => msg("err", T.errGeneric + "OAuth state mismatch · " + T.authHint, true), 0);
+    return;
+  }
   if (code) {
+    sessionStorage.removeItem("gcState");
     log("info", "PKCE code received, exchanging for token…");
     const verifier = sessionStorage.getItem("gcVerifier") || "";
+    sessionStorage.removeItem("gcVerifier");
     try {
       const r = await fetch(`https://login.${cfg.region}/oauth/token`, {
         method: "POST",
@@ -514,14 +535,11 @@ async function handleAuthReturn() {
     }
     history.replaceState(null, "", location.pathname);
   }
-  // restore context: OAuth state param (survives redirect guaranteed) -> gcCtx fallback
-  const st = qs.get("state") || hs.get("state");
-  if (st) {
-    const ctx = decodeState(st);
-    if (!conversationId && ctx.c) { conversationId = ctx.c; log("info", "conversationId restored from OAuth state: " + ctx.c); }
-  }
-  const ctx2 = JSON.parse(sessionStorage.getItem("gcCtx") || "{}");
-  if (!conversationId && ctx2.conversationId) { conversationId = ctx2.conversationId; log("info", "conversationId restored from sessionStorage: " + ctx2.conversationId); }
+  // restore context: verified OAuth state (survives redirect guaranteed) -> gcCtx fallback
+  if (stateOk && !conversationId && isUuid(ctx.c)) { conversationId = ctx.c; log("info", "conversationId restored from OAuth state: " + ctx.c); }
+  let ctx2 = {};
+  try { ctx2 = JSON.parse(sessionStorage.getItem("gcCtx") || "{}"); } catch (e) { ctx2 = {}; }
+  if (!conversationId && isUuid(ctx2.conversationId)) { conversationId = ctx2.conversationId; log("info", "conversationId restored from sessionStorage: " + ctx2.conversationId); }
 }
 
 function logout() {
@@ -547,7 +565,7 @@ async function gc(path, opts = {}) {
 async function startLive(auto) {
   if (liveActive) return;
   if (!token) { if (!auto) msg("warn", T.needAuth); return; }
-  if (!conversationId) { if (!auto) msg("warn", T.needConv); return; }
+  if (!isUuid(conversationId)) { if (!auto) msg("warn", T.needConv); return; }
   const ch = await gc("/api/v2/notifications/channels", { method: "POST" });
   channelId = ch.id;
   await gc(`/api/v2/notifications/channels/${channelId}/subscriptions`, {
@@ -604,7 +622,7 @@ function stopLive(silent) {
 /* ---------------- fetch transcript (Speech & Text Analytics) ---------------- */
 async function fetchTranscript() {
   if (!token) { msg("warn", T.needAuth); return; }
-  if (!conversationId) { msg("warn", T.needConv); return; }
+  if (!isUuid(conversationId)) { msg("warn", T.needConv); return; }
   if (cfg.whisperUrl) { return fetchTranscriptWhisper(); }
   msg("info", T.fetching, true);
   try {
@@ -825,22 +843,24 @@ async function callProvider(provider, prompt) {
        integrations:action:execute permission. Only used when the agent
        hasn't configured their own key for this provider — see precedence
        comment above agentHasOwnKey(). */
+    /* Azure endpoint/API version are NOT sent: they live in the Function
+       integration's Credentials tab (azureEndpoint/azureApiVersion), and the
+       input contract rejects extra fields. model = deployment name; empty
+       means "use the azureDeployment credential". */
     const d = await gc(`/api/v2/integrations/actions/${encodeURIComponent(actionId)}/execute`, {
       method: "POST",
-      body: JSON.stringify({
-        provider,
-        model,
-        prompt,
-        ...(provider === "azure" ? { azureEndpoint: cfg.azureEndpoint, azureApiVersion: cfg.azureApiVersion } : {})
-      })
+      body: JSON.stringify({ provider, model, prompt })
     });
     out = (d && d.text) || "";
 
   } else if (!ownKey && proxyUrl) {
-    /* Proxy mode: server-side key/URL takes precedence; local values are fallback only. */
+    /* Proxy mode: server-side key/URL takes precedence; local values are fallback only.
+       The agent's Genesys token is sent so the proxy can verify the caller
+       belongs to the org before spending the org's API keys (v1.9.0). */
+    if (!token) throw new Error(T.needAuth);
     const r = await fetch(proxyUrl.replace(/\/$/, "") + "/summarize", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
       body: JSON.stringify({
         provider, model, prompt,
         clientKey: key || undefined,
@@ -1057,13 +1077,20 @@ async function autoSummarizeAndWrapup() {
 
 async function writeWrapupNotes(convId, text) {
   if (!token) { log("warn", "Auto-resumé: ikke logget ind, kan ikke skrive wrap-up."); return; }
+  if (!isUuid(convId)) { log("warn", "Auto-resumé: ugyldigt conversationId — springer wrap-up over."); return; }
   try {
+    /* Match the participant belonging to the logged-in agent — NOT just the
+       first "agent" participant, which after a transfer is the previous
+       agent. If this agent joined the call more than once, the last leg is
+       the one currently in wrap-up. */
+    const user = await gc("/api/v2/users/me");
     const conv = await gc(`/api/v2/conversations/${convId}`);
-    const me = (conv.participants || []).find(p => p.purpose === "agent");
-    if (!me) { log("warn", "Auto-resumé: fandt ingen agent-deltager at skrive wrap-up på."); return; }
+    const mine = (conv.participants || []).filter(p => p.purpose === "agent" && p.userId === user.id);
+    const me = mine[mine.length - 1];
+    if (!me) { log("warn", "Auto-resumé: fandt ingen agent-deltager for den indloggede bruger at skrive wrap-up på."); return; }
     const wrapup = { notes: text };
     if (cfg.autoWrapupCode) wrapup.code = cfg.autoWrapupCode;
-    await gc(`/api/v2/conversations/calls/${convId}/participants/${me.id}`, {
+    await gc(`/api/v2/conversations/calls/${convId}/participants/${encodeURIComponent(me.id)}`, {
       method: "PATCH",
       body: JSON.stringify({ wrapup })
     });
@@ -1102,7 +1129,6 @@ async function copyText(text) {
 /* ---------------- settings form ---------------- */
 function loadForm() {
   $("region").value = cfg.region;
-  $("authType").value = cfg.authType;
   $("clientId").value = cfg.clientId;
   $("uiLang").value = cfg.uiLang;
   $("sumLang").value = cfg.sumLang;
@@ -1126,7 +1152,6 @@ function loadForm() {
 
 function saveForm() {
   cfg.region = $("region").value;
-  cfg.authType = $("authType").value;
   cfg.clientId = $("clientId").value.trim();
   cfg.uiLang = $("uiLang").value;
   cfg.sumLang = $("sumLang").value;
@@ -1145,7 +1170,11 @@ function saveForm() {
   cfg.autoWrapup = $("autoWrapup").checked;
   cfg.autoWrapupCode = $("autoWrapupCode").value.trim();
   cfg.focusPoints = $("focusPoints").value;
-  if ($("convId").value.trim() && !$("convId").value.includes("{{")) conversationId = $("convId").value.trim();
+  const convIn = $("convId").value.trim();
+  if (convIn && !convIn.includes("{{")) {
+    if (isUuid(convIn)) conversationId = convIn;
+    else { msg("warn", T.invalidConvId); log("warn", "Ignoring invalid Conversation ID from Setup (not a UUID): " + convIn.slice(0, 60)); }
+  }
   localStorage.setItem(LS, JSON.stringify(cfg));
 }
 
@@ -1156,7 +1185,7 @@ async function init() {
   const q = new URLSearchParams(location.search);
   const cid = q.get("conversationId") || q.get("gcConversationId") || q.get("pcConversationId") || "";
   // guard: accept only a real UUID — protects against misconfigured widget URLs
-  if (cid && !/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(cid)) {
+  if (cid && !isUuid(cid)) {
     setTimeout(() => log("warn", "Ignoring invalid conversationId from URL (not a UUID): " + cid.slice(0, 60)), 0);
   } else if (cid) {
     conversationId = cid;
@@ -1178,7 +1207,7 @@ async function init() {
     setTimeout(() => log("info", `Org-konfiguration nulstillet til standard (cfgVersion ${ORG.cfgVersion}) — lokale nøgler/overrides ryddet.`), 0);
   }
 
-  log("info", `Widget start v1.8.0 · region=${cfg.region} · authType=${cfg.authType} · conversationId=${conversationId || "(none)"}`);
+  log("info", `Widget start v1.9.0 · region=${cfg.region} · conversationId=${conversationId || "(none)"}`);
   log("info", "URL query: " + (location.search || "(empty)"));
   await handleAuthReturn();
   loadForm();
